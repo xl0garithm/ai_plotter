@@ -6,7 +6,7 @@ Python/Flask web application for capturing webcam images, generating AI caricatu
 - Browser UI with webcam preview, capture, retake, and submission flow.
 - Gemini REST integration for caricature generation with manual confirmation step.
 - Persistent job queue with admin dashboard for approval, cancellation, and print control.
-- Automatic image scaling to 400×400 px and raster-to-G-code conversion.
+- Automatic image scaling to 400×400 px and outline-to-G-code conversion.
 - USB serial plotter driver that streams generated G-code to the robot.
 
 ## Prerequisites
@@ -33,6 +33,7 @@ Copy `env.example` to `.env` (or export these variables manually):
 | `PLOTTER_BAUDRATE` | Baud rate for the plotter (default `115200`) |
 | `PLOTTER_SERIAL_TIMEOUT` | Serial read timeout seconds (default `2.0`) |
 | `PLOTTER_DRY_RUN` | When `true`, skip serial output and dump G-code to `.dryrun.txt` |
+| `PLOTTER_INVERT_Z` | Set `true` if your plotter lowers the pen with higher Z values |
 
 ## Running
 ```bash

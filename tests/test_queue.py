@@ -19,6 +19,7 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
         "SERIAL_PORT": test_storage["SERIAL_PORT"],
         "SERIAL_BAUDRATE": test_storage["SERIAL_BAUDRATE"],
         "PLOTTER_DRY_RUN": False,
+        "PLOTTER_INVERT_Z": False,
     }
 
     job = queue.create_job_from_upload(
@@ -57,6 +58,7 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
     assert job["status"] == queue.JobStatus.COMPLETED.value
     assert sent_paths, "G-code should be sent to plotter"
     assert sent_paths[0].exists()
+    assert "G1 X" in sent_paths[0].read_text(encoding="utf-8")
     stored_gcode = Path(queue.get_job(job["id"], admin=True)["gcode_path"])
     assert stored_gcode == sent_paths[0]
 
@@ -70,6 +72,7 @@ def test_start_print_job_dry_run(test_storage, sample_upload):
         "SERIAL_PORT": test_storage["SERIAL_PORT"],
         "SERIAL_BAUDRATE": test_storage["SERIAL_BAUDRATE"],
         "PLOTTER_DRY_RUN": True,
+        "PLOTTER_INVERT_Z": False,
     }
 
     job = queue.create_job_from_upload(
@@ -88,4 +91,5 @@ def test_start_print_job_dry_run(test_storage, sample_upload):
     dry_run_path = gcode_path.with_suffix(".dryrun.txt")
     assert dry_run_path.exists()
     assert dry_run_path.read_text(encoding="utf-8") == gcode_path.read_text(encoding="utf-8")
+    assert "G1 X" in gcode_path.read_text(encoding="utf-8")
 

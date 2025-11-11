@@ -1,6 +1,6 @@
 import io
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 from werkzeug.datastructures import FileStorage
 
 from services.database import init_db
@@ -30,8 +30,12 @@ def test_storage(tmp_path_factory):
 
 @pytest.fixture
 def sample_upload():
-    def factory(color=(0, 0, 0)):
-        image = Image.new("RGB", (400, 400), color=color)
+    def factory():
+        image = Image.new("RGB", (400, 400), color="white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((60, 60, 340, 340), outline="black", width=6)
+        draw.ellipse((150, 150, 250, 250), outline="black", width=4)
+        draw.line((80, 300, 320, 120), fill="black", width=3)
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         data = buffer.getvalue()

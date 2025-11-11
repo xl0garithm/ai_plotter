@@ -77,6 +77,17 @@ def _is_dry_run(config: Union[Config, Dict[str, Any]]) -> bool:
     return bool(value)
 
 
+def _is_z_inverted(config: Union[Config, Dict[str, Any]]) -> bool:
+    if isinstance(config, dict):
+        value = config.get("PLOTTER_INVERT_Z")
+    else:
+        value = getattr(config, "PLOTTER_INVERT_Z", False)
+
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _touch_job(session, job_id: int) -> Job:
     job = session.get(Job, job_id)
     if job is None:
@@ -230,7 +241,8 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
 
     try:
-        gcode_service.image_to_gcode(generated_path, gcode_path)
+        settings = gcode_service.GCodeSettings(invert_z=_is_z_inverted(config))
+        gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
         _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
