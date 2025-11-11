@@ -53,12 +53,15 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
         if not segments:
             continue
         serpentine = row % 2 == 1
-        if serpentine:
-            segments = [(width - end, width - start) for start, end in reversed(segments)]
+        segment_iter = reversed(segments) if serpentine else segments
 
-        for start, end in segments:
-            x_start = start * pixel
-            x_end = end * pixel
+        for start, end in segment_iter:
+            if serpentine:
+                x_start = end * pixel
+                x_end = start * pixel
+            else:
+                x_start = start * pixel
+                x_end = end * pixel
             commands.append(f"G0 X{x_start:.2f} Y{y:.2f}")
             commands.append(f"G1 Z{settings.draw_height:.2f} F{settings.feed_rate}")
             commands.append(f"G1 X{x_end:.2f} Y{y:.2f} F{settings.feed_rate}")
