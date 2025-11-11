@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Caricature Plotter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  </head>
+  <body>
+    <main id="app">
+      <h1>AI Caricature Plotter</h1>
+      <section id="capture-section">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="snapshot" width="400" height="400" hidden></canvas>
+        <div class="controls">
+          <button id="start-btn">Start Camera</button>
+          <button id="capture-btn" disabled>Take Picture</button>
+          <button id="retake-btn" disabled>Retake</button>
+          <button id="submit-btn" disabled>Submit</button>
+        </div>
+      </section>
+      <section id="preview-section" hidden>
+        <h2>Generated Caricature Preview</h2>
+        <img id="generated-preview" alt="Generated caricature preview" />
+        <div class="controls">
+          <button id="confirm-btn">Confirm</button>
+          <button id="cancel-btn">Cancel</button>
+        </div>
+      </section>
+      <section id="queue-section">
+        <h2>Submission Status</h2>
+        <ul id="job-status"></ul>
+      </section>
+    </main>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  </body>
+</html>
+
