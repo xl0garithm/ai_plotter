@@ -63,5 +63,35 @@
 
   setInterval(fetchQueue, 4000);
   fetchQueue();
+
+  const uploadForm = document.getElementById("manual-upload-form");
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fileInput = uploadForm.querySelector('input[type="file"]');
+      if (!fileInput?.files?.length) {
+        alert("Select an image first.");
+        return;
+      }
+      const formData = new FormData();
+      formData.append("image", fileInput.files[0]);
+      try {
+        const response = await fetch("/api/admin/uploads", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || "Upload failed");
+        }
+        fileInput.value = "";
+        await fetchQueue();
+        alert("Image uploaded and queued.");
+      } catch (err) {
+        console.error(err);
+        alert(err.message || "Upload failed");
+      }
+    });
+  }
 })();
 

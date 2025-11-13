@@ -10,6 +10,7 @@ from services.queue import (
     approve_job,
     cancel_job,
     confirm_job,
+    create_job_from_manual_upload,
     create_job_from_upload,
     get_generated_image_path,
     get_job,
@@ -147,5 +148,26 @@ def admin_cancel(job_id: int) -> Response:
         job = cancel_job(job_id)
     except QueueError as exc:
         return jsonify({"error": str(exc)}), 400
+    return jsonify(job)
+
+
+@api_bp.post("/admin/uploads")
+def admin_manual_upload() -> Response:
+    """Upload an outline image directly for plotting."""
+    image = request.files.get("image")
+    requester = request.remote_addr
+
+    try:
+        job = create_job_from_manual_upload(
+            image,
+            requester=requester,
+            config=current_app.config,
+        )
+    except QueueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Manual upload failed: %s", exc)
+        return jsonify({"error": "Failed to ingest manual upload."}), 500
+
     return jsonify(job)
 

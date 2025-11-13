@@ -148,6 +148,41 @@ def create_job_from_upload(
     return get_job(job_id, admin=False)
 
 
+def create_job_from_manual_upload(
+    upload: FileStorage,
+    *,
+    requester: Optional[str],
+    config: Config,
+) -> Dict[str, Any]:
+    """Create a job directly from an uploaded outline image."""
+    if upload is None or upload.filename == "":
+        raise QueueError("No image provided.")
+
+    cfg = _get_queue_config(config)
+    asset_key = image_processing.generate_asset_key()
+    original_path = cfg.upload_dir / f"{asset_key}_manual.png"
+    generated_path = cfg.generated_dir / f"{asset_key}_manual_generated.png"
+
+    image_processing.save_upload(upload, original_path)
+    resized = image_processing.resize_image_bytes(original_path.read_bytes(), (400, 400))
+    image_processing.save_image_bytes(resized, generated_path)
+
+    with session_scope() as session:
+        job = Job(
+            asset_key=asset_key,
+            status=JobStatus.GENERATED.value,
+            requester=requester,
+            prompt="Manual admin upload",
+            original_path=str(original_path),
+            generated_path=str(generated_path),
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+
+    return get_job(job_id, admin=True)
+
+
 def _generate_caricature(job_id: int, gemini_client: GeminiClient, cfg: QueueConfig, prompt: Optional[str]) -> None:
     """Invoke Gemini to generate a caricature for the job."""
     set_job_status(job_id, JobStatus.GENERATING)

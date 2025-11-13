@@ -10,6 +10,16 @@
     <main id="admin-app">
       <h1>Admin Queue Management</h1>
       <section>
+        <h2>Manual Upload</h2>
+        <form id="manual-upload-form">
+          <label>
+            Outline image (PNG/JPG):
+            <input type="file" name="image" accept="image/png,image/jpeg" required />
+          </label>
+          <button type="submit">Upload & Queue</button>
+        </form>
+      </section>
+      <section>
         <table id="queue-table">
           <thead>
             <tr>
