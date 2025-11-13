@@ -58,7 +58,7 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
         "G21",
         "G90",
         "M5",
-        "G0 X0.00 Y0.00",
+        f"G1 X0.00 Y0.00 F{settings.feed_rate}",
     ]
 
     height, width = skeleton.shape
@@ -76,7 +76,7 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
             continue
 
         x0, y0 = mm_points[0]
-        commands.append(f"G0 X{x0:.2f} Y{y0:.2f}")
+        commands.append(f"G1 X{x0:.2f} Y{y0:.2f} F{settings.feed_rate}")
         commands.append("M3 S90")
 
         for x, y in mm_points:
@@ -86,7 +86,7 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
     commands.extend(
         [
-            "G0 X0.00 Y0.00",
+            f"G1 X0.00 Y0.00 F{settings.feed_rate}",
             "M5",
         ]
     )
