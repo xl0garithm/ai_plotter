@@ -58,14 +58,17 @@ class PlotterController:
         self._ensure_connection()
         assert self._serial is not None  # for type checkers
 
-        for line in lines:
+        for idx, line in enumerate(lines, start=1):
             command = line.strip()
             if not command:
                 continue
             payload = f"{command}\r\n".encode("utf-8")
             self._serial.write(payload)
             self._serial.flush()
-            self._wait_for_ok()
+            try:
+                self._wait_for_ok()
+            except PlotterError as exc:
+                raise PlotterError(f"{exc} (line {idx}: '{command}')") from exc
 
     def send_gcode_file(self, file_path: Path) -> None:
         """Send a G-code file to the plotter."""

@@ -130,7 +130,8 @@ def admin_approve(job_id: int) -> Response:
 def admin_start(job_id: int) -> Response:
     """Queue job for printing."""
     try:
-        job = start_print_job(job_id, current_app.config)
+        allow_reprint = request.args.get("reprint") in {"1", "true", "yes", "on"}
+        job = start_print_job(job_id, current_app.config, allow_reprint=allow_reprint)
     except QueueError as exc:
         return jsonify({"error": str(exc)}), 400
     except Exception as exc:  # noqa: BLE001

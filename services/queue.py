@@ -257,19 +257,47 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
     return get_job(job_id, admin=True)
 
 
-def start_print_job(job_id: int, config: Union[Config, Dict[str, Any]]) -> Dict[str, Any]:
+def start_print_job(
+    job_id: int,
+    config: Union[Config, Dict[str, Any]],
+    *,
+    allow_reprint: bool = False,
+) -> Dict[str, Any]:
     """Send the job's G-code to the plotter."""
     job = get_job(job_id, admin=True)
     status = job["status"]
-    if status not in (
+    allowed_statuses = {
         JobStatus.QUEUED.value,
         JobStatus.APPROVED.value,
         JobStatus.CONFIRMED.value,
-    ):
+    }
+    if allow_reprint:
+        allowed_statuses.update(
+            {
+                JobStatus.COMPLETED.value,
+                JobStatus.FAILED.value,
+                JobStatus.CANCELLED.value,
+            }
+        )
+
+    if status not in allowed_statuses:
         raise QueueError("Job must be queued or approved before printing.")
 
     if status != JobStatus.QUEUED.value:
-        job = queue_for_printing(job_id, config)
+        if allow_reprint and status in {
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        }:
+            with session_scope() as session:
+                obj = _touch_job(session, job_id)
+                if not obj.gcode_path:
+                    raise QueueError("G-code not available for this job.")
+                obj.status = JobStatus.QUEUED.value
+                obj.error_message = None
+            job = get_job(job_id, admin=True)
+        else:
+            job = queue_for_printing(job_id, config)
 
     gcode_path = job.get("gcode_path")
     if not gcode_path:

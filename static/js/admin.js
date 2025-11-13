@@ -39,7 +39,7 @@
   }
 
   async function handleAction(action, jobId) {
-    const endpoint = action === "reprint" ? "start" : action;
+    const endpoint = action === "reprint" ? "start?reprint=1" : action;
     try {
       const response = await fetch(`/api/admin/jobs/${jobId}/${endpoint}`, {
         method: "POST",
