@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence
+from typing import List, Sequence, Tuple
 
-import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 class GCodeError(RuntimeError):
@@ -24,12 +23,9 @@ class GCodeSettings:
     travel_height: float = 5.0
     draw_height: float = 0.0
     invert_z: bool = False
-    canny_threshold1: int = 60
-    canny_threshold2: int = 180
-    blur_kernel_size: int = 5
-    dilate_iterations: int = 1
-    contour_tolerance: float = 0.01
-    min_contour_length: int = 40
+    threshold: int = 200
+    blur_radius: float = 1.5
+    thinning_iterations: int = 20
     point_skip: int = 1
 
 
@@ -42,16 +38,19 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
         raise GCodeError(f"Image '{image_path}' does not exist.")
 
     image = Image.open(image_path).convert("L")
-    gray = np.array(image)
+    if settings.blur_radius > 0:
+        image = image.filter(ImageFilter.GaussianBlur(radius=settings.blur_radius))
 
-    if settings.blur_kernel_size and settings.blur_kernel_size % 2 == 1:
-        gray = cv2.GaussianBlur(gray, (settings.blur_kernel_size, settings.blur_kernel_size), 0)
+    gray = np.array(image, dtype=np.uint8)
+    mask = gray < settings.threshold
 
-    edges = cv2.Canny(gray, settings.canny_threshold1, settings.canny_threshold2)
+    if not mask.any():
+        raise GCodeError("Thresholding removed all pixels; cannot produce outline.")
 
-    if settings.dilate_iterations > 0:
-        kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=settings.dilate_iterations)
+    skeleton = _zhang_suen_thinning(mask, iterations=settings.thinning_iterations)
+
+    if not skeleton.any():
+        raise GCodeError("Unable to derive skeleton from outline.")
 
     pen_up = settings.travel_height
     pen_down = settings.draw_height
@@ -65,49 +64,27 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
         f"G1 Z{pen_up:.2f} F{settings.feed_rate}",
     ]
 
-    height, width = gray.shape
+    height, width = skeleton.shape
     pixel = settings.pixel_size_mm
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    paths = _extract_paths(skeleton, settings.point_skip)
 
-    if not contours:
-        raise GCodeError("No contours detected; cannot generate outline.")
+    if not paths:
+        raise GCodeError("No drawable paths detected in skeleton.")
 
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    drawn_any = False
-
-    for contour in contours:
-        if len(contour) < settings.min_contour_length:
+    for path in paths:
+        mm_points = _pixels_to_mm(path, height, pixel)
+        if len(mm_points) < 2:
             continue
 
-        epsilon = settings.contour_tolerance * cv2.arcLength(contour, closed=True)
-        if epsilon > 0:
-            contour = cv2.approxPolyDP(contour, epsilon, closed=True)
-
-        points = contour.squeeze()
-        if points.ndim != 2 or len(points) < 2:
-            continue
-
-        if settings.point_skip > 1:
-            points = points[:: settings.point_skip]
-            if len(points) < 2:
-                continue
-
-        path_points = _contour_to_path(points, height, pixel)
-
-        x0, y0 = path_points[0]
+        x0, y0 = mm_points[0]
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f}")
         commands.append(f"G1 Z{pen_down:.2f} F{settings.feed_rate}")
 
-        for x, y in path_points[1:]:
+        for x, y in mm_points[1:]:
             commands.append(f"G1 X{x:.2f} Y{y:.2f} F{settings.feed_rate}")
 
         commands.append(f"G1 Z{pen_up:.2f} F{settings.feed_rate}")
-        drawn_any = True
-
-    if not drawn_any:
-        raise GCodeError("Contours were detected but did not meet length requirements.")
 
     commands.extend(
         [
@@ -122,16 +99,144 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
     return output_path
 
 
-def _contour_to_path(points: Sequence[Sequence[int]], height: int, pixel: float) -> List[tuple[float, float]]:
-    """Convert contour pixel points to plotter coordinates."""
-    path: List[tuple[float, float]] = []
-    for px, py in points:
-        x_mm = float(px) * pixel
-        y_mm = (height - float(py)) * pixel
-        path.append((x_mm, y_mm))
+def _zhang_suen_thinning(mask: np.ndarray, iterations: int = 20) -> np.ndarray:
+    """Perform Zhang-Suen thinning to produce a 1px-wide skeleton."""
+    binary = mask.astype(np.uint8)
+    rows, cols = binary.shape
 
-    # Ensure closed loop ends back at start for smooth outline
-    if path and (path[0][0] != path[-1][0] or path[0][1] != path[-1][1]):
-        path.append(path[0])
+    def _neighborhood(y: int, x: int) -> Tuple[int, ...]:
+        return (
+            binary[y - 1, x],
+            binary[y - 1, x + 1],
+            binary[y, x + 1],
+            binary[y + 1, x + 1],
+            binary[y + 1, x],
+            binary[y + 1, x - 1],
+            binary[y, x - 1],
+            binary[y - 1, x - 1],
+        )
+
+    changed = True
+    iter_count = 0
+    while changed and (iterations is None or iter_count < iterations):
+        changed = False
+        iter_count += 1
+        for step in (0, 1):
+            to_remove = []
+            for y in range(1, rows - 1):
+                for x in range(1, cols - 1):
+                    if binary[y, x] == 0:
+                        continue
+                    neighbors = _neighborhood(y, x)
+                    transitions = sum(
+                        neighbors[i] == 0 and neighbors[(i + 1) % 8] == 1 for i in range(8)
+                    )
+                    total = sum(neighbors)
+                    if not (2 <= total <= 6 and transitions == 1):
+                        continue
+                    if step == 0:
+                        if neighbors[0] * neighbors[2] * neighbors[4] != 0:
+                            continue
+                        if neighbors[2] * neighbors[4] * neighbors[6] != 0:
+                            continue
+                    else:
+                        if neighbors[0] * neighbors[2] * neighbors[6] != 0:
+                            continue
+                        if neighbors[0] * neighbors[4] * neighbors[6] != 0:
+                            continue
+                    to_remove.append((y, x))
+            if to_remove:
+                changed = True
+                for y, x in to_remove:
+                    binary[y, x] = 0
+
+    return binary.astype(bool)
+
+
+NEIGHBOR_OFFSETS = [
+    (-1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+    (1, 0),
+    (1, -1),
+    (0, -1),
+    (-1, -1),
+]
+
+
+def _extract_paths(mask: np.ndarray, point_skip: int) -> List[List[Tuple[int, int]]]:
+    """Extract continuous paths from a skeleton mask."""
+    working = mask.copy()
+    paths: List[List[Tuple[int, int]]] = []
+
+    while True:
+        coords = np.argwhere(working)
+        if coords.size == 0:
+            break
+        start = _choose_start(working, coords)
+        path = _trace_path(working, start)
+        if point_skip > 1:
+            path = path[::point_skip]
+        if len(path) >= 2:
+            paths.append(path)
+
+    return paths
+
+
+def _choose_start(mask: np.ndarray, coords: np.ndarray) -> Tuple[int, int]:
+    for y, x in coords:
+        if _neighbor_count(mask, (y, x)) <= 1:
+            return int(y), int(x)
+    y, x = coords[0]
+    return int(y), int(x)
+
+
+def _neighbor_count(mask: np.ndarray, point: Tuple[int, int]) -> int:
+    return sum(
+        1
+        for dy, dx in NEIGHBOR_OFFSETS
+        if 0 <= point[0] + dy < mask.shape[0]
+        and 0 <= point[1] + dx < mask.shape[1]
+        and mask[point[0] + dy, point[1] + dx]
+    )
+
+
+def _trace_path(mask: np.ndarray, start: Tuple[int, int]) -> List[Tuple[int, int]]:
+    path: List[Tuple[int, int]] = []
+    current = start
+    prev = None
+
+    while True:
+        path.append(current)
+        y, x = current
+        mask[y, x] = False
+        neighbors = [
+            (y + dy, x + dx)
+            for dy, dx in NEIGHBOR_OFFSETS
+            if 0 <= y + dy < mask.shape[0]
+            and 0 <= x + dx < mask.shape[1]
+            and mask[y + dy, x + dx]
+        ]
+
+        if not neighbors:
+            break
+
+        if prev and prev in neighbors and len(neighbors) > 1:
+            neighbors.remove(prev)
+
+        next_point = neighbors[0]
+        prev = current
+        current = next_point
+
     return path
+
+
+def _pixels_to_mm(path: List[Tuple[int, int]], height: int, pixel_size: float) -> List[Tuple[float, float]]:
+    points: List[Tuple[float, float]] = []
+    for row, col in path:
+        x_mm = col * pixel_size
+        y_mm = (height - row - 1) * pixel_size
+        points.append((x_mm, y_mm))
+    return points
 

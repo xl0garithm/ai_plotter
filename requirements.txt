@@ -5,5 +5,4 @@ Pillow
 numpy
 pyserial
 pytest
-opencv-python
 

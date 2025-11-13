@@ -13,6 +13,14 @@ class GeminiClientError(RuntimeError):
     """Raised when Gemini API interaction fails."""
 
 
+BASE_PROMPT = (
+    "Create a humorous, slightly embarrassing caricature of the person in the provided photo. "
+    "Render the artwork as a single continuous outline with no shading or fills. "
+    "Ensure the line art has strong contrast and even stroke weight so it is safe for direct G-code conversion. "
+    "Return only the final outline image without any text, captions, or borders."
+)
+
+
 @dataclass
 class GeminiClient:
     """REST client for Gemini image generation."""
@@ -21,6 +29,7 @@ class GeminiClient:
     model: str
     endpoint: str = "https://generativelanguage.googleapis.com/v1beta"
     timeout: int = 60
+    max_attempts: int = 2
 
     def generate_caricature(self, image_bytes: bytes, prompt: Optional[str] = None) -> bytes:
         """Generate a caricature image using the Gemini API."""
@@ -28,17 +37,16 @@ class GeminiClient:
             raise GeminiClientError("Gemini API key is not configured.")
 
         encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-        model_name = self.model.removeprefix("models/")
-        url = f"{self.endpoint}/models/{model_name}:generateContent"
+        final_prompt = BASE_PROMPT
+        if prompt:
+            final_prompt = f"{BASE_PROMPT} Additional instructions: {prompt}"
+
         payload = {
             "contents": [
                 {
                     "role": "user",
                     "parts": [
-                        {
-                            "text": prompt
-                            or "Create a high-contrast caricature of the provided portrait suitable for vector plotting."
-                        },
+                        {"text": final_prompt},
                         {
                             "inlineData": {
                                 "mimeType": "image/png",
@@ -50,6 +58,28 @@ class GeminiClient:
             ]
         }
 
+        last_error: Optional[GeminiClientError] = None
+
+        for _ in range(max(1, self.max_attempts)):
+            try:
+                data = self._post_and_parse(payload)
+                encoded_output = data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
+                return base64.b64decode(encoded_output)
+            except (KeyError, IndexError, TypeError):
+                last_error = GeminiClientError(
+                    "Gemini response missing expected image data; retrying for outline image."
+                )
+            except GeminiClientError as exc:
+                last_error = exc
+
+        if last_error:
+            raise last_error
+        raise GeminiClientError("Gemini generation failed for an unknown reason.")
+
+    def _post_and_parse(self, payload: dict) -> dict:
+        """Send request to Gemini and return JSON data."""
+        model_name = self.model.removeprefix("models/")
+        url = f"{self.endpoint}/models/{model_name}:generateContent"
         params = {"key": self.api_key}
 
         try:
@@ -64,11 +94,5 @@ class GeminiClient:
                     details = ""
             raise GeminiClientError(f"Gemini request failed: {exc}.{details}") from exc
 
-        data = response.json()
-        try:
-            encoded_output = data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise GeminiClientError("Gemini response missing expected image data.") from exc
-
-        return base64.b64decode(encoded_output)
+        return response.json()
 

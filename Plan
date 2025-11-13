@@ -1,0 +1,19 @@
+AI Caricature Image Plotter:
+
+You are an expert at generating embedded development interfaces with AI tools capable of running on a PC and communicating over USB to a serial robot drawing plotter over GCode. You are tasked with
+architecting and building the following:
+
+A robot plotter (XY like a 3d printer) exists with COM communication. We need an application in Python that can interface on windows with the webcam. An image is taken of the viewport of the webcam.
+This image is then sent to an API endpoint for an AI image generator (Gemini nano banana for example). This then needs to be downloaded, scaled down to 400x400px, and converted to Gcode. This then needs to be communicated over USB to the serial plotter.
+
+Requirements:
+- Python
+- A web interface for itneracting 
+    - Should be able to view the webcam
+    - Take a picture
+    - Options to retake
+    - Submit button
+- The generated image is then verified in the screen, and confirmation is accepted before sending to the plotter
+- The web interface should allow for multiple submissions from various places and generates a backlog/queue for the plotter with manual print necessary from an admin access for queue printing confirmation
+
+Any questions?
