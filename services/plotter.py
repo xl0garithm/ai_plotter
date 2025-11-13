@@ -16,11 +16,20 @@ class PlotterError(RuntimeError):
 class PlotterController:
     """Manage communication with the drawing plotter over USB serial."""
 
-    def __init__(self, port: str, baudrate: int, *, timeout: float = 10.0, startup_delay: float = 2.0):
+    def __init__(
+        self,
+        port: str,
+        baudrate: int,
+        *,
+        timeout: float = 10.0,
+        startup_delay: float = 2.0,
+        line_delay: float = 0.0,
+    ):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.startup_delay = startup_delay
+        self.line_delay = line_delay
         self._serial: Optional[serial.Serial] = None
 
     def connect(self) -> None:
@@ -69,6 +78,8 @@ class PlotterController:
                 self._wait_for_ok()
             except PlotterError as exc:
                 raise PlotterError(f"{exc} (line {idx}: '{command}')") from exc
+            if self.line_delay > 0:
+                time.sleep(self.line_delay)
 
     def send_gcode_file(self, file_path: Path) -> None:
         """Send a G-code file to the plotter."""

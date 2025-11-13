@@ -27,6 +27,7 @@ class GCodeSettings:
     blur_radius: float = 1.5
     thinning_iterations: int = 20
     point_skip: int = 1
+    min_move_mm: float = 0.25
 
 
 def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings | None = None) -> Path:
@@ -70,6 +71,7 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
     for path in paths:
         mm_points = _pixels_to_mm(path, height, pixel)
+        mm_points = _filter_min_move(mm_points, settings.min_move_mm)
         if len(mm_points) < 2:
             continue
 
@@ -234,4 +236,22 @@ def _pixels_to_mm(path: List[Tuple[int, int]], height: int, pixel_size: float) -
         y_mm = (height - row - 1) * pixel_size
         points.append((x_mm, y_mm))
     return points
+
+
+def _filter_min_move(points: List[Tuple[float, float]], min_dist: float) -> List[Tuple[float, float]]:
+    if not points or min_dist <= 0:
+        return points
+
+    filtered = [points[0]]
+    last_x, last_y = points[0]
+    for x, y in points[1:]:
+        dx = x - last_x
+        dy = y - last_y
+        if dx * dx + dy * dy < min_dist * min_dist:
+            continue
+        filtered.append((x, y))
+        last_x, last_y = x, y
+    if filtered[-1] != points[-1]:
+        filtered.append(points[-1])
+    return filtered
 

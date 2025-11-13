@@ -34,6 +34,7 @@ Copy `env.example` to `.env` (or export these variables manually):
 | `PLOTTER_SERIAL_TIMEOUT` | Serial read timeout seconds (default `2.0`) |
 | `PLOTTER_DRY_RUN` | When `true`, skip serial output and dump G-code to `.dryrun.txt` |
 | `PLOTTER_INVERT_Z` | Set `true` if your plotter lowers the pen with higher Z values |
+| `PLOTTER_LINE_DELAY` | Extra seconds to wait between each streamed G-code line |
 
 ## Running
 ```bash

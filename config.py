@@ -29,6 +29,7 @@ class Config:
     SERIAL_TIMEOUT = float(os.environ.get("PLOTTER_SERIAL_TIMEOUT", "2.0"))
     PLOTTER_DRY_RUN = os.environ.get("PLOTTER_DRY_RUN", "false").strip().lower() in {"1", "true", "yes", "on"}
     PLOTTER_INVERT_Z = os.environ.get("PLOTTER_INVERT_Z", "false").strip().lower() in {"1", "true", "yes", "on"}
+    PLOTTER_LINE_DELAY = float(os.environ.get("PLOTTER_LINE_DELAY", "0.0"))
 
     # Queue
     MAX_RETRY = int(os.environ.get("PLOTTER_MAX_RETRY", "3"))

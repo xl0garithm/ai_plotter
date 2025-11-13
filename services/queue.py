@@ -350,6 +350,9 @@ def start_print_job(
             port=config["SERIAL_PORT"],
             baudrate=int(config["SERIAL_BAUDRATE"]),
             timeout=float(timeout_value),
+            line_delay=float(
+                config.get("PLOTTER_LINE_DELAY", 0.0) if isinstance(config, dict) else getattr(config, "PLOTTER_LINE_DELAY", 0.0)
+            ),
         )
 
         try:
