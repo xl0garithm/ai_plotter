@@ -29,11 +29,19 @@ class PlotterController:
             return
 
         try:
-            self._serial = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+            self._serial = serial.Serial(
+                self.port,
+                self.baudrate,
+                timeout=self.timeout,
+                write_timeout=self.timeout,
+            )
         except serial.SerialException as exc:
             raise PlotterError(f"Unable to connect to plotter on {self.port}: {exc}") from exc
 
         time.sleep(self.startup_delay)
+        self._serial.reset_input_buffer()
+        self._serial.reset_output_buffer()
+        self._flush_startup()
 
     def disconnect(self) -> None:
         """Close the serial connection."""
@@ -54,7 +62,7 @@ class PlotterController:
             command = line.strip()
             if not command:
                 continue
-            payload = f"{command}\n".encode("utf-8")
+            payload = f"{command}\r\n".encode("utf-8")
             self._serial.write(payload)
             self._serial.flush()
             self._wait_for_ok()
@@ -70,7 +78,27 @@ class PlotterController:
     def _wait_for_ok(self) -> None:
         """Wait for an OK response from the plotter."""
         assert self._serial is not None
-        response = self._serial.readline().decode("utf-8").strip()
-        if response and response.lower() != "ok":
-            raise PlotterError(f"Unexpected response from plotter: {response}")
+        start_time = time.time()
+        while True:
+            response = self._serial.readline().decode("utf-8").strip().lower()
+            if response == "ok":
+                return
+            if response in ("", None):
+                if time.time() - start_time > self.timeout:
+                    raise PlotterError("Timed out waiting for plotter OK response.")
+                continue
+            if response.startswith("error"):
+                raise PlotterError(f"Plotter responded with error: {response}")
+            # Ignore echoes and status messages, but guard against infinite loop
+            if time.time() - start_time > self.timeout:
+                raise PlotterError(f"Unexpected response from plotter: {response}")
+
+    def _flush_startup(self) -> None:
+        """Drain any startup banner lines."""
+        assert self._serial is not None
+        start = time.time()
+        while time.time() - start < self.startup_delay:
+            if not self._serial.in_waiting:
+                break
+            _ = self._serial.readline()
 
