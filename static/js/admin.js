@@ -16,10 +16,11 @@
     tableBody.innerHTML = "";
     jobs.forEach((job) => {
       const tr = document.createElement("tr");
-      const canApprove = ["generated", "confirmed"].includes(job.status);
-      const canStart = ["approved", "confirmed", "queued"].includes(job.status);
-      const canReprint = ["completed", "failed"].includes(job.status);
-      const canCancel = !["completed", "cancelled"].includes(job.status);
+      const status = (job.status || "").toLowerCase();
+      const canApprove = ["generated", "confirmed"].includes(status);
+      const canStart = ["approved", "confirmed", "queued"].includes(status);
+      const canReprint = status !== "printing" && status !== "queued";
+      const canCancel = !["completed", "cancelled"].includes(status);
 
       tr.innerHTML = `
         <td>${job.id}</td>
