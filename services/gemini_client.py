@@ -63,9 +63,9 @@ class GeminiClient:
         for _ in range(max(1, self.max_attempts)):
             try:
                 data = self._post_and_parse(payload)
-                encoded_output = data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
-                return base64.b64decode(encoded_output)
-            except (KeyError, IndexError, TypeError):
+                encoded_output = self._extract_inline_image(data)
+                if encoded_output:
+                    return base64.b64decode(encoded_output)
                 last_error = GeminiClientError(
                     "Gemini response missing expected image data; retrying for outline image."
                 )
@@ -95,4 +95,19 @@ class GeminiClient:
             raise GeminiClientError(f"Gemini request failed: {exc}.{details}") from exc
 
         return response.json()
+
+    @staticmethod
+    def _extract_inline_image(response_data: dict) -> Optional[str]:
+        """Find the first inlineData entry containing base64 image data."""
+        candidates = response_data.get("candidates") or []
+        for candidate in candidates:
+            content = candidate.get("content") or {}
+            parts = content.get("parts") or []
+            for part in parts:
+                inline = part.get("inlineData")
+                if inline:
+                    data = inline.get("data")
+                    if data:
+                        return data
+        return None
 
