@@ -16,7 +16,7 @@ class PlotterError(RuntimeError):
 class PlotterController:
     """Manage communication with the drawing plotter over USB serial."""
 
-    def __init__(self, port: str, baudrate: int, *, timeout: float = 2.0, startup_delay: float = 2.0):
+    def __init__(self, port: str, baudrate: int, *, timeout: float = 10.0, startup_delay: float = 2.0):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
