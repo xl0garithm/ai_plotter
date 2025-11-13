@@ -31,6 +31,7 @@ class PlotterController:
         self.startup_delay = startup_delay
         self.line_delay = line_delay
         self._serial: Optional[serial.Serial] = None
+        self._cancel_requested = False
 
     def connect(self) -> None:
         """Open the serial connection."""
@@ -57,6 +58,11 @@ class PlotterController:
         if self._serial:
             self._serial.close()
             self._serial = None
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        """Signal that the current streaming operation should stop."""
+        self._cancel_requested = True
 
     def _ensure_connection(self) -> None:
         if not self._serial or not self._serial.is_open:
@@ -65,12 +71,15 @@ class PlotterController:
     def send_gcode_lines(self, lines: Iterable[str]) -> None:
         """Send G-code lines to the plotter."""
         self._ensure_connection()
+        self._cancel_requested = False
         assert self._serial is not None  # for type checkers
 
         for idx, line in enumerate(lines, start=1):
             command = line.strip()
             if not command:
                 continue
+            if self._cancel_requested:
+                raise PlotterError("Transmission cancelled by user.")
             payload = f"{command}\r\n".encode("utf-8")
             self._serial.write(payload)
             self._serial.flush()

@@ -354,6 +354,7 @@ def start_print_job(
                 config.get("PLOTTER_LINE_DELAY", 0.0) if isinstance(config, dict) else getattr(config, "PLOTTER_LINE_DELAY", 0.0)
             ),
         )
+        _plotter_state.controller = controller
 
         try:
             controller.connect()
@@ -365,6 +366,7 @@ def start_print_job(
             raise
         finally:
             controller.disconnect()
+            _plotter_state.controller = None
 
     return set_job_status(job_id, JobStatus.COMPLETED)
 
@@ -374,7 +376,23 @@ def cancel_job(job_id: int) -> Dict[str, Any]:
     job = get_job(job_id, admin=True)
     if job["status"] in (JobStatus.COMPLETED.value, JobStatus.CANCELLED.value):
         return job
-    return set_job_status(job_id, JobStatus.CANCELLED)
+    set_job_status(job_id, JobStatus.CANCELLED)
+    _signal_plotter_cancel()
+    return get_job(job_id, admin=True)
+
+
+def _signal_plotter_cancel() -> None:
+    """Trigger cancellation on any active plotter controller."""
+    controller = getattr(_plotter_state, "controller", None)
+    if controller:
+        controller.request_cancel()
+
+
+class _PlotterState:
+    controller: Optional[PlotterController] = None
+
+
+_plotter_state = _PlotterState()
 
 
 def mark_job_failed(job_id: int, message: str) -> None:
