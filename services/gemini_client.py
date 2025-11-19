@@ -14,9 +14,10 @@ class GeminiClientError(RuntimeError):
 
 
 BASE_PROMPT = (
-    "Create a humorous, slightly embarrassing black-and-white caricature of the person in the provided photo. "
-    "Render the artwork as a single continuous outline with no shading or fills. "
-    "Use only pure black lines on a white background so the result is safe for direct G-code conversion. "
+    "Create a simple, clean black-and-white caricature of the person in the provided photo. "
+    "Render as a single continuous outline with minimal detail - focus on the most essential facial features only. "
+    "Use thick, smooth black lines on a white background suitable for pen plotting. "
+    "Avoid small details, shading, or fills. Keep it simple and continuous for clean G-code conversion. "
     "Return only the final outline image without any text, captions, or borders."
 )
 

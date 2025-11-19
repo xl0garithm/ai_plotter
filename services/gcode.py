@@ -63,6 +63,8 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
     if not paths:
         raise GCodeError("No drawable paths detected in skeleton.")
 
+    commands: List[str] = []
+
     for path in paths:
         mm_points = _pixels_to_mm(path, height, pixel)
         mm_points = _filter_min_move(mm_points, settings.min_move_mm)
@@ -71,18 +73,18 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
         x0, y0 = mm_points[0]
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
+        commands.append("F500 ; set feed rate")
         commands.append("M3 S90 ; pen down")
-        commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
 
         for x, y in mm_points:
-            commands.append(f"G1 X{x:.2f} Y{y:.2f} F{settings.feed_rate}")
+            commands.append(f"G1 X{x:.2f} Y{y:.2f}")
 
         commands.append("M5 ; pen up")
-        commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
 
     commands.extend(
         [
             "G0 X0.00 Y0.00 ; return to origin",
+            "G4 P2.0 ; long dwell for home completion",
             "M5 ; pen up",
         ]
     )

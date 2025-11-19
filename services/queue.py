@@ -276,7 +276,20 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
 
     try:
-        settings = gcode_service.GCodeSettings(invert_z=_is_z_inverted(config))
+        # Custom settings optimized for quality and speed
+        settings = gcode_service.GCodeSettings(
+            pixel_size_mm=0.25,  # Good balance of size and quality
+            feed_rate=8000,  # Very fast drawing speed
+            travel_height=5.0,
+            draw_height=0.0,
+            invert_z=_is_z_inverted(config),
+            threshold=250,  # Higher threshold for cleaner lines
+            blur_radius=0.3,  # Even less blurring for sharper lines
+            thinning_iterations=8,  # Even fewer iterations to preserve detail
+            point_skip=1,  # No point skipping for better quality
+            min_move_mm=0.05,  # Much smaller minimum moves for finer detail
+            pen_dwell_seconds=0.05,  # Shorter dwell time
+        )
         gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
         _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
@@ -345,14 +358,23 @@ def start_print_job(
         dry_run_path = gcode_file.with_suffix(".dryrun.txt")
         dry_run_path.write_text(gcode_file.read_text(encoding="utf-8"), encoding="utf-8")
     else:
-        timeout_value = config.get("SERIAL_TIMEOUT", 2.0) if isinstance(config, dict) else getattr(config, "SERIAL_TIMEOUT", 2.0)
+        # Access the config object correctly depending on whether it's a dict or object
+        if isinstance(config, dict):
+             timeout_value = float(config.get("SERIAL_TIMEOUT", 2.0))
+             port = config.get("SERIAL_PORT")
+             baudrate = int(config.get("SERIAL_BAUDRATE", 115200))
+             line_delay = float(config.get("PLOTTER_LINE_DELAY", 0.0))
+        else:
+             timeout_value = float(getattr(config, "SERIAL_TIMEOUT", 2.0))
+             port = getattr(config, "SERIAL_PORT")
+             baudrate = int(getattr(config, "SERIAL_BAUDRATE", 115200))
+             line_delay = float(getattr(config, "PLOTTER_LINE_DELAY", 0.0))
+
         controller = PlotterController(
-            port=config["SERIAL_PORT"],
-            baudrate=int(config["SERIAL_BAUDRATE"]),
-            timeout=float(timeout_value),
-            line_delay=float(
-                config.get("PLOTTER_LINE_DELAY", 0.0) if isinstance(config, dict) else getattr(config, "PLOTTER_LINE_DELAY", 0.0)
-            ),
+            port=port,
+            baudrate=baudrate,
+            timeout=timeout_value,
+            line_delay=line_delay,
         )
         _plotter_state.controller = controller
 

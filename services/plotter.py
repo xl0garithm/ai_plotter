@@ -81,11 +81,13 @@ class PlotterController:
             if self._cancel_requested:
                 raise PlotterError("Transmission cancelled by user.")
             payload = f"{command}\r\n".encode("utf-8")
+            print(f"SEND: {command}")  # Debug
             self._serial.write(payload)
             self._serial.flush()
             try:
                 self._wait_for_ok()
             except PlotterError as exc:
+                print(f"ERROR on command '{command}': {exc}")
                 raise PlotterError(f"{exc} (line {idx}: '{command}')") from exc
             if self.line_delay > 0:
                 time.sleep(self.line_delay)
@@ -114,7 +116,10 @@ class PlotterController:
                 raise PlotterError(f"Plotter responded with error: {response}")
             # Ignore echoes and status messages, but guard against infinite loop
             if time.time() - start_time > self.timeout:
-                raise PlotterError(f"Unexpected response from plotter: {response}")
+                # If we see 'grbl' or similar startup messages, we might have reset; treat as ok or ignore
+                if "grbl" in response:
+                    continue
+                raise PlotterError(f"Timed out waiting for OK. Last response: {response}")
 
     def _flush_startup(self) -> None:
         """Drain any startup banner lines."""
