@@ -21,7 +21,7 @@ class GCodeSettings:
     """Settings controlling image-to-G-code conversion."""
 
     pixel_size_mm: float = 0.25
-    feed_rate: int = 2000
+    feed_rate: int = 5000
     travel_height: float = 5.0
     draw_height: float = 0.0
     invert_z: bool = False

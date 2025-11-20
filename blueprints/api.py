@@ -25,6 +25,7 @@ from services.queue import (
     list_jobs,
     start_print_job,
 )
+from services.style_presets import DEFAULT_STYLE_KEY, get_style
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -57,21 +58,23 @@ def health_check() -> Response:
 def submit_job() -> Response:
     """Create a new job from an uploaded image."""
     image = request.files.get("image")
-    prompt = request.form.get("prompt")
-    email = (request.form.get("email") or "").strip()
+    custom_prompt = (request.form.get("prompt") or "").strip() or None
+    style_key = (request.form.get("style") or DEFAULT_STYLE_KEY).strip().lower()
+    email = (request.form.get("email") or "").strip() or None
     requester = request.form.get("requester") or request.remote_addr
 
-    if not email:
-        return jsonify({"error": "Email is required."}), 400
-    if "@" not in email:
+    if email and "@" not in email:
         return jsonify({"error": "Please provide a valid email address."}), 400
 
+    style = get_style(style_key)
     try:
         job = create_job_from_upload(
             image,
-            prompt=prompt,
+            prompt=custom_prompt,
             requester=requester,
             email=email,
+            style_key=style_key,
+            style_prompt=style["prompt"],
             config=current_app.config,
             gemini_client=_gemini_client(),
         )

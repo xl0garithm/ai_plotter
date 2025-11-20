@@ -18,6 +18,7 @@ from services.database import session_scope
 from services.gemini_client import GeminiClient, GeminiClientError
 from services import gcode as gcode_service
 from services import image_processing, vectorizer
+from services.style_presets import DEFAULT_STYLE_KEY, get_style
 from services.plotter import PlotterController, PlotterError
 
 
@@ -150,7 +151,9 @@ def create_job_from_upload(
     *,
     prompt: Optional[str],
     requester: Optional[str],
-    email: str,
+    email: Optional[str] = None,
+    style_key: str = DEFAULT_STYLE_KEY,
+    style_prompt: Optional[str] = None,
     config: Config,
     gemini_client: GeminiClient,
 ) -> Dict[str, Any]:
@@ -158,11 +161,13 @@ def create_job_from_upload(
     if upload is None or upload.filename == "":
         raise QueueError("No image provided.")
 
-    normalized_email = (email or "").strip()
-    if not normalized_email:
-        raise QueueError("Email address is required.")
-    if "@" not in normalized_email:
+    normalized_email = (email or "").strip() or None
+    if normalized_email and "@" not in normalized_email:
         raise QueueError("A valid email address is required.")
+
+    style_key = (style_key or DEFAULT_STYLE_KEY).strip().lower()
+    style = get_style(style_key)
+    resolved_style_prompt = style_prompt or style["prompt"]
 
     cfg = _get_queue_config(config)
     asset_key = image_processing.generate_asset_key()
@@ -178,13 +183,19 @@ def create_job_from_upload(
             email=normalized_email,
             prompt=prompt,
             original_path=str(original_path),
+            metadata_json={
+                "style_key": style_key,
+                "style_label": style["label"],
+                "style_description": style["description"],
+                "style_prompt": resolved_style_prompt,
+            },
         )
         session.add(job)
         session.flush()
         job_id = job.id
 
     try:
-        _generate_caricature(job_id, gemini_client, cfg, prompt, config)
+        _generate_caricature(job_id, gemini_client, cfg, config)
     except GeminiClientError as exc:
         _logger().exception("Gemini generation failed for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
@@ -213,10 +224,18 @@ def create_job_from_manual_upload(
     generated_path = cfg.generated_dir / f"{asset_key}_manual_generated.png"
 
     image_processing.save_upload(upload, original_path)
+    style = get_style(DEFAULT_STYLE_KEY)
     resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
     resized = image_processing.resize_image_bytes(original_path.read_bytes(), (resolution, resolution))
     image_processing.save_image_bytes(resized, generated_path)
     vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
+    metadata = {
+        "style_key": DEFAULT_STYLE_KEY,
+        "style_label": style["label"],
+        "style_description": style["description"],
+        "style_prompt": style["prompt"],
+        **vector_meta,
+    }
 
     with session_scope() as session:
         job = Job(
@@ -226,6 +245,7 @@ def create_job_from_manual_upload(
             prompt="Manual admin upload",
             original_path=str(original_path),
             generated_path=str(generated_path),
+            metadata_json=metadata,
         )
         session.add(job)
         session.flush()
@@ -239,7 +259,6 @@ def _generate_caricature(
     job_id: int,
     gemini_client: GeminiClient,
     cfg: QueueConfig,
-    prompt: Optional[str],
     config: Config,
 ) -> None:
     """Invoke Gemini to generate a caricature for the job."""
@@ -252,9 +271,19 @@ def _generate_caricature(
         if not original_path.exists():
             raise QueueError("Original image not found on disk.")
         image_bytes = original_path.read_bytes()
+        metadata = job.metadata_json or {}
+        style_prompt = metadata.get("style_prompt", "")
+        custom_prompt = (job.prompt or "").strip()
+
+    prompt_parts = []
+    if style_prompt:
+        prompt_parts.append(style_prompt)
+    if custom_prompt:
+        prompt_parts.append(custom_prompt)
+    effective_prompt = " ".join(prompt_parts).strip() or None
 
     resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
-    generated_bytes = gemini_client.generate_caricature(image_bytes, prompt)
+    generated_bytes = gemini_client.generate_caricature(image_bytes, effective_prompt or None)
     resized_bytes = image_processing.resize_image_bytes(generated_bytes, (resolution, resolution))
     generated_path = cfg.generated_dir / f"{asset_key}_generated.png"
     image_processing.save_image_bytes(resized_bytes, generated_path)
@@ -265,9 +294,7 @@ def _generate_caricature(
         job.generated_path = str(generated_path)
         job.status = JobStatus.GENERATED.value
         job.error_message = None
-        metadata = job.metadata_json or {}
-        metadata.update(vector_meta)
-        job.metadata_json = metadata
+        job.metadata_json = {**(job.metadata_json or {}), **vector_meta}
 
 
 def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
@@ -340,14 +367,30 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
         metadata = obj.metadata_json or {}
 
-    try:
         vector_data: vectorizer.VectorData | None = None
         vector_data_path = metadata.get("vector_data_path")
+        candidate_paths = []
         if vector_data_path:
-            candidate = Path(vector_data_path)
+            candidate_paths.append(Path(vector_data_path))
+        candidate_paths.append(cfg.generated_dir / f"{obj.asset_key}_vector.json")
+
+        for candidate in candidate_paths:
             if candidate.exists():
                 vector_data = vectorizer.load_vector_data(candidate)
+                metadata = {
+                    **metadata,
+                    "vector_data_path": str(candidate),
+                    "vector_svg_path": str((cfg.generated_dir / f"{obj.asset_key}_vector.svg")),
+                }
+                obj.metadata_json = metadata
+                break
 
+        if not vector_data:
+            raise QueueError(
+                "Vector data missing for job; regenerate the caricature before queuing."
+            )
+
+    try:
         vector_resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
         target_size_mm = 100.0  # physical drawing size
         pixel_size_mm = target_size_mm / vector_resolution
@@ -362,13 +405,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
             pen_dwell_seconds=0.05,
         )
 
-        if vector_data:
-            gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
-        else:
-            _logger().warning(
-                "Vector data missing for job %s; falling back to raster conversion.", job_id
-            )
-            gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
+        gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
         _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))

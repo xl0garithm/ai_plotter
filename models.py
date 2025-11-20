@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from sqlalchemy import Column, DateTime, Integer, JSON, String, Text
+from sqlalchemy.ext.mutable import MutableDict
 
 from services.database import Base
 
@@ -26,7 +27,7 @@ class Job(Base):
     gcode_path = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
-    metadata_json = Column("metadata", JSON, nullable=True)
+    metadata_json = Column("metadata", MutableDict.as_mutable(JSON), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     confirmed_at = Column(DateTime, nullable=True)

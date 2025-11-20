@@ -8,81 +8,74 @@
   </head>
   <body>
     <main id="app">
-      <h1>AI Caricature Plotter</h1>
-      
-      <div class="card">
-        <section id="capture-section">
+      <header class="hero">
+        <h1>AI Caricature Plotter</h1>
+        <p class="hero-subtitle">Capture, stylize, and print a single-line portrait in minutes.</p>
+      </header>
+
+      <div class="layout-grid">
+        <section id="capture-section" class="panel">
+          <div class="panel-header">
+            <h2>Capture</h2>
+            <p class="muted">Take a photo, pick a style, and let Gemini reimagine it.</p>
+          </div>
           <div class="media-container">
             <video id="webcam" autoplay playsinline></video>
             <canvas id="snapshot" hidden></canvas>
           </div>
           
           <div class="form-group">
-            <label>Choose your style:</label>
+            <label>Choose your style</label>
             <div class="style-selector" id="style-options">
-              <label class="style-option">
-                <input type="radio" name="style" value="nerdy" checked>
-                <span class="style-card">
-                  <span class="style-name">Nerdy</span>
-                </span>
-              </label>
-              <label class="style-option">
-                <input type="radio" name="style" value="goofy">
-                <span class="style-card">
-                  <span class="style-name">Goofy</span>
-                </span>
-              </label>
-              <label class="style-option">
-                <input type="radio" name="style" value="funny">
-                <span class="style-card">
-                  <span class="style-name">Funny</span>
-                </span>
-              </label>
-              <label class="style-option">
-                <input type="radio" name="style" value="cyberpunk">
-                <span class="style-card">
-                  <span class="style-name">Cyberpunk</span>
-                </span>
-              </label>
+              {% for key, preset in style_presets.items() %}
+                <label class="style-option">
+                  <input type="radio" name="style" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+                  <span class="style-card">
+                    <span class="style-name">{{ preset.label }}</span>
+                  </span>
+                </label>
+              {% endfor %}
             </div>
+            <p id="style-description" class="input-hint"></p>
           </div>
 
-          <div class="form-group">
-            <label for="email-input">Email address</label>
+          <div class="form-group compact">
+            <label for="email-input">Email (optional)</label>
             <input
               type="email"
               id="email-input"
               placeholder="you@example.com"
-              required
             />
-            <span class="input-hint">Required so we can contact you about your print.</span>
+            <span class="input-hint">Add an email if you’d like updates sent to you.</span>
           </div>
 
           <div class="controls">
             <button id="start-btn">Start Camera</button>
-            <button id="capture-btn" disabled>Take Picture</button>
+            <button id="capture-btn" disabled>Capture</button>
             <button id="retake-btn" class="secondary" disabled>Retake</button>
             <button id="submit-btn" disabled>Generate</button>
           </div>
         </section>
+
+        <section id="preview-section" class="panel panel-preview" hidden>
+          <div class="panel-header">
+            <h2>Preview</h2>
+            <p class="muted">Looks good? Queue it up or capture again.</p>
+          </div>
+          <div class="media-container preview-container">
+            <img id="generated-preview" alt="Generated caricature preview" />
+          </div>
+          <div class="controls">
+            <button id="confirm-btn">Confirm & Queue</button>
+            <button id="cancel-btn" class="danger">Discard</button>
+          </div>
+        </section>
       </div>
 
-      <section id="preview-section" class="card" hidden>
-        <h2>Preview</h2>
-        <div class="media-container">
-            <img id="generated-preview" alt="Generated caricature preview" />
-        </div>
-        <div class="controls">
-          <button id="confirm-btn">Confirm & Queue</button>
-          <button id="cancel-btn" class="danger">Discard</button>
-        </div>
-      </section>
-
-      <section id="queue-section">
-        <h2>Queue Status</h2>
-        <ul id="job-status"></ul>
-      </section>
     </main>
+    <script>
+      window.STYLE_PRESETS = {{ style_presets | tojson }};
+    </script>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </body>
 </html>

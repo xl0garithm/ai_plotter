@@ -24,16 +24,18 @@ body {
   background-color: var(--bg-color);
   color: var(--text-color);
   line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
 }
 
 main {
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1.25rem;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 h1, h2, h3 {
@@ -44,40 +46,65 @@ h1, h2, h3 {
 
 h1 {
   text-align: center;
-  font-size: 2.5rem;
+  font-size: 2.1rem;
   background: linear-gradient(to right, #60a5fa, #a855f7);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  margin-bottom: 2rem;
 }
 
-/* Layout Components */
-section {
+.hero {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.hero-subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.layout-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+  min-height: 0;
+}
+
+#capture-section,
+#preview-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel {
   background: var(--surface-color);
-  padding: 1.5rem;
+  padding: 1.25rem;
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   border: 1px solid var(--border-color);
 }
 
-.card {
-  background: var(--surface-color);
-  padding: 2rem;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  border: 1px solid var(--border-color);
-  max-width: 400px;
-  width: 100%;
-  margin: 0 auto;
+.panel-header {
+  margin-bottom: 1rem;
+}
+
+.panel-header h2 {
+  margin-bottom: 0.35rem;
+}
+
+.muted {
+  color: var(--text-muted);
+  margin: 0;
 }
 
 /* Media */
 .media-container {
   position: relative;
   width: 100%;
-  max-width: 600px;
-  margin: 0 auto 1.5rem;
-  aspect-ratio: 4/3;
+  max-width: clamp(320px, 45vw, 720px);
+  margin: 0 auto 1rem;
+  aspect-ratio: 16 / 9;
   background: #000;
   border-radius: var(--radius);
   overflow: hidden;
@@ -95,9 +122,9 @@ video, canvas, img {
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.75rem;
   justify-content: center;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 
 button {
@@ -142,7 +169,11 @@ button.danger:hover:not(:disabled) {
 
 /* Forms */
 .form-group {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.form-group.compact {
+  margin-bottom: 0.75rem;
 }
 
 label {
@@ -179,8 +210,8 @@ input:focus, select:focus {
 .style-selector {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .style-option {
@@ -267,24 +298,6 @@ tr:hover {
   color: var(--primary-color);
 }
 
-/* Status List */
-#job-status {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-}
-
-#job-status li {
-  padding: 1rem;
-  background: var(--bg-color);
-  border-radius: var(--radius);
-  border: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 /* Alerts */
 .alert {
   padding: 1rem;
@@ -316,4 +329,64 @@ tr:hover {
   font-size: 0.875rem;
   font-weight: 500;
   background: var(--border-color);
+}
+
+@media (max-width: 1080px) {
+  main {
+    padding: 1.25rem;
+    gap: 1.25rem;
+  }
+  .media-container {
+    margin: 0 auto 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  main {
+    padding: 1rem;
+  }
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  button {
+    width: 100%;
+  }
+  .style-selector {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.5rem;
+  }
+  .media-container {
+    max-width: 100%;
+    aspect-ratio: 3 / 4;
+  }
+}
+
+@media (min-width: 1024px) {
+  body {
+    overflow-y: hidden;
+  }
+
+  main {
+    height: 100vh;
+    padding: 1rem 2rem;
+    gap: 0.75rem;
+    overflow: hidden;
+  }
+
+  .layout-grid {
+    align-items: stretch;
+    height: 100%;
+  }
+
+  .layout-grid.has-preview {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  }
+
+  #capture-section,
+  #preview-section {
+    height: 100%;
+    min-height: 0;
+  }
+
 }

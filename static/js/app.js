@@ -10,9 +10,27 @@
   const generatedPreview = document.getElementById("generated-preview");
   const confirmBtn = document.getElementById("confirm-btn");
   const cancelBtn = document.getElementById("cancel-btn");
-  const jobStatusList = document.getElementById("job-status");
   const captureSection = document.getElementById("capture-section");
+  const layoutGrid = document.querySelector(".layout-grid");
   const emailInput = document.getElementById("email-input");
+  const styleDescription = document.getElementById("style-description");
+  const styleRadios = document.querySelectorAll('input[name="style"]');
+
+  const STYLE_PRESETS = window.STYLE_PRESETS || {};
+  const DEFAULT_STYLE_KEY = Object.keys(STYLE_PRESETS)[0] || "nerdy";
+
+  function updateStyleDescription(styleKey) {
+    const fallback = Object.values(STYLE_PRESETS)[0] || null;
+    const preset = STYLE_PRESETS[styleKey] || fallback;
+    if (styleDescription) {
+      styleDescription.textContent = preset?.description || "";
+    }
+  }
+
+  styleRadios.forEach((radio) => {
+    radio.addEventListener("change", () => updateStyleDescription(radio.value));
+  });
+  updateStyleDescription(document.querySelector('input[name="style"]:checked')?.value || DEFAULT_STYLE_KEY);
 
   let stream;
   let capturedBlob;
@@ -67,8 +85,8 @@
     if (!capturedBlob) return;
 
     const emailValue = emailInput?.value.trim();
-    if (!emailValue) {
-      alert("Please enter your email address before submitting.");
+    if (emailValue && !emailValue.includes("@")) {
+      alert("Please enter a valid email address or leave the field blank.");
       emailInput?.focus();
       return;
     }
@@ -78,11 +96,13 @@
 
     const formData = new FormData();
     formData.append("image", capturedBlob, "capture.png");
-    formData.append("email", emailValue);
+    if (emailValue) {
+      formData.append("email", emailValue);
+    }
 
     // Get selected style
-    const selectedStyle = document.querySelector('input[name="style"]:checked')?.value || "normal";
-    formData.append("prompt", `Make it look ${selectedStyle}.`);
+    const selectedStyle = document.querySelector('input[name="style"]:checked')?.value || DEFAULT_STYLE_KEY;
+    formData.append("style", selectedStyle);
 
     try {
       const response = await fetch("/api/jobs", {
@@ -122,7 +142,10 @@
             generatedPreview.src = URL.createObjectURL(blob);
             
             previewSection.hidden = false;
-            captureSection.hidden = true; // Hide capture section while previewing
+            layoutGrid?.classList.add("has-preview");
+            captureBtn.disabled = true;
+            retakeBtn.disabled = true;
+            submitBtn.disabled = true;
             submitBtn.textContent = "Generate";
             return;
         } else if (job.status === "failed") {
@@ -152,7 +175,6 @@
       });
       if (!response.ok) throw new Error("Confirmation failed");
       resetUI();
-      pollJobs();
       alert("Job submitted to queue successfully!");
     } catch (err) {
       console.error(err);
@@ -171,7 +193,6 @@
         method: "DELETE",
       });
       resetUI();
-      pollJobs();
     } catch (err) {
       console.error(err);
       alert("Could not cancel job.");
@@ -185,6 +206,7 @@
     // Reset view to camera
     previewSection.hidden = true;
     captureSection.hidden = false;
+    layoutGrid?.classList.remove("has-preview");
     
     // Reset camera controls
     video.hidden = false;
@@ -200,33 +222,6 @@
     }
   }
 
-  async function pollJobs() {
-    try {
-      const response = await fetch("/api/jobs");
-      if (!response.ok) throw new Error("Failed to fetch jobs");
-      const jobs = await response.json();
-      renderJobs(jobs);
-    } catch (err) {
-      console.error("Job polling failed:", err);
-    }
-  }
-
-  function renderJobs(jobs) {
-    jobStatusList.innerHTML = "";
-    jobs.forEach((job) => {
-      if (['completed', 'cancelled', 'failed'].includes(job.status)) return; // Optional: filter out finished jobs
-      
-      const li = document.createElement("li");
-      const statusClass = job.status === 'printing' ? 'text-primary' : 'text-muted';
-      
-      li.innerHTML = `
-        <span>Job #${job.id}</span>
-        <span class="status-badge">${job.status}</span>
-      `;
-      jobStatusList.appendChild(li);
-    });
-  }
-
   startBtn.addEventListener("click", startCamera);
   captureBtn.addEventListener("click", capturePhoto);
   retakeBtn.addEventListener("click", retakePhoto);
@@ -234,6 +229,4 @@
   confirmBtn.addEventListener("click", confirmJob);
   cancelBtn.addEventListener("click", cancelJob);
 
-  setInterval(pollJobs, 5000);
-  pollJobs();
 })();
