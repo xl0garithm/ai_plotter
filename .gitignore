@@ -11,3 +11,6 @@ __pycache__
 *.pyzwz
 storage/*
 *.db
+gcode/*
+processed/*
+uploads/*

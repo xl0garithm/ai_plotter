@@ -101,25 +101,28 @@ class PlotterController:
         self.send_gcode_lines(lines)
 
     def _wait_for_ok(self) -> None:
-        """Wait for an OK response from the plotter."""
+        """Wait for a response from the plotter."""
         assert self._serial is not None
         start_time = time.time()
         while True:
             response = self._serial.readline().decode("utf-8").strip().lower()
+            print(f"PLOTTER RESPONSE: '{response}'")  # Debug all responses
             if response == "ok":
                 return
             if response in ("", None):
                 if time.time() - start_time > self.timeout:
-                    raise PlotterError("Timed out waiting for plotter OK response.")
+                    raise PlotterError("Timed out waiting for plotter response.")
                 continue
             if response.startswith("error"):
                 raise PlotterError(f"Plotter responded with error: {response}")
+            # For this plotter, accept any non-error response as acknowledgment
+            # It might send different confirmations than "ok"
+            if response and not response.startswith("error"):
+                print(f"Accepting response '{response}' as OK")
+                return
             # Ignore echoes and status messages, but guard against infinite loop
             if time.time() - start_time > self.timeout:
-                # If we see 'grbl' or similar startup messages, we might have reset; treat as ok or ignore
-                if "grbl" in response:
-                    continue
-                raise PlotterError(f"Timed out waiting for OK. Last response: {response}")
+                raise PlotterError(f"Timed out waiting for response. Last: '{response}'")
 
     def _flush_startup(self) -> None:
         """Drain any startup banner lines."""

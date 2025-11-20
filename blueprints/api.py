@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response, current_app, jsonify, request, send_file
+from flask import (
+    Blueprint,
+    Response,
+    current_app,
+    jsonify,
+    request,
+    send_file,
+    session,
+)
 
 from services.gemini_client import GeminiClient, GeminiClientError
 from services.queue import (
@@ -19,6 +27,14 @@ from services.queue import (
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+
+
+@api_bp.before_request
+def require_admin_api():
+    """Restrict access to admin API routes."""
+    if request.path.startswith("/api/admin"):
+        if not session.get("admin_logged_in"):
+            return jsonify({"error": "Unauthorized"}), 401
 
 
 def _gemini_client() -> GeminiClient:
@@ -170,4 +186,3 @@ def admin_manual_upload() -> Response:
         return jsonify({"error": "Failed to ingest manual upload."}), 500
 
     return jsonify(job)
-

@@ -17,6 +17,7 @@ class Config:
     DB_PATH = STORAGE_DIR / "app.db"
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-this-secret")
+    ADMIN_PIN = os.environ.get("ADMIN_PIN", "1234")
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-preview-image")
 

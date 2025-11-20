@@ -9,30 +9,69 @@
   <body>
     <main id="app">
       <h1>AI Caricature Plotter</h1>
-      <section id="capture-section">
-        <video id="webcam" autoplay playsinline></video>
-        <canvas id="snapshot" width="400" height="400" hidden></canvas>
+      
+      <div class="card">
+        <section id="capture-section">
+          <div class="media-container">
+            <video id="webcam" autoplay playsinline></video>
+            <canvas id="snapshot" hidden></canvas>
+          </div>
+          
+          <div class="form-group">
+            <label>Choose your style:</label>
+            <div class="style-selector" id="style-options">
+              <label class="style-option">
+                <input type="radio" name="style" value="nerdy" checked>
+                <span class="style-card">
+                  <span class="style-name">Nerdy</span>
+                </span>
+              </label>
+              <label class="style-option">
+                <input type="radio" name="style" value="goofy">
+                <span class="style-card">
+                  <span class="style-name">Goofy</span>
+                </span>
+              </label>
+              <label class="style-option">
+                <input type="radio" name="style" value="funny">
+                <span class="style-card">
+                  <span class="style-name">Funny</span>
+                </span>
+              </label>
+              <label class="style-option">
+                <input type="radio" name="style" value="cyberpunk">
+                <span class="style-card">
+                  <span class="style-name">Cyberpunk</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button id="start-btn">Start Camera</button>
+            <button id="capture-btn" disabled>Take Picture</button>
+            <button id="retake-btn" class="secondary" disabled>Retake</button>
+            <button id="submit-btn" disabled>Generate</button>
+          </div>
+        </section>
+      </div>
+
+      <section id="preview-section" class="card" hidden>
+        <h2>Preview</h2>
+        <div class="media-container">
+            <img id="generated-preview" alt="Generated caricature preview" />
+        </div>
         <div class="controls">
-          <button id="start-btn">Start Camera</button>
-          <button id="capture-btn" disabled>Take Picture</button>
-          <button id="retake-btn" disabled>Retake</button>
-          <button id="submit-btn" disabled>Submit</button>
+          <button id="confirm-btn">Confirm & Queue</button>
+          <button id="cancel-btn" class="danger">Discard</button>
         </div>
       </section>
-      <section id="preview-section" hidden>
-        <h2>Generated Caricature Preview</h2>
-        <img id="generated-preview" alt="Generated caricature preview" />
-        <div class="controls">
-          <button id="confirm-btn">Confirm</button>
-          <button id="cancel-btn">Cancel</button>
-        </div>
-      </section>
+
       <section id="queue-section">
-        <h2>Submission Status</h2>
+        <h2>Queue Status</h2>
         <ul id="job-status"></ul>
       </section>
     </main>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </body>
 </html>
-

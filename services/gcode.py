@@ -28,7 +28,8 @@ class GCodeSettings:
     thinning_iterations: int = 20
     point_skip: int = 1
     min_move_mm: float = 0.25
-    pen_dwell_seconds: float = 0.15
+    simplification_error: float = 0.1
+    smoothing_iterations: int = 2
 
 
 def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings | None = None) -> Path:
@@ -67,13 +68,25 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
     for path in paths:
         mm_points = _pixels_to_mm(path, height, pixel)
+        
+        # 1. Simplify jagged pixel path into vectors (RDP)
+        if settings.simplification_error > 0:
+            mm_points = _simplify_path_rdp(mm_points, settings.simplification_error)
+            
+        # 2. Smooth the sharp corners (Chaikin)
+        if settings.smoothing_iterations > 0:
+            mm_points = _smooth_path_chaikin(mm_points, settings.smoothing_iterations)
+            
+        # 3. Filter tiny leftover segments
         mm_points = _filter_min_move(mm_points, settings.min_move_mm)
+        
         if len(mm_points) < 2:
             continue
 
         x0, y0 = mm_points[0]
+        # Format to 1 decimal place for GRBL compatibility if needed, or keep 2 but ensure no trailing weirdness
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
-        commands.append("F500 ; set feed rate")
+        commands.append(f"F{settings.feed_rate} ; set feed rate")
         commands.append("M3 S90 ; pen down")
 
         for x, y in mm_points:
@@ -225,6 +238,81 @@ def _trace_path(mask: np.ndarray, start: Tuple[int, int]) -> List[Tuple[int, int
         current = next_point
 
     return path
+
+
+def _simplify_path_rdp(points: List[Tuple[float, float]], epsilon: float) -> List[Tuple[float, float]]:
+    """Simplify path using Ramer-Douglas-Peucker algorithm."""
+    if len(points) < 3:
+        return points
+
+    # Find the point with the maximum distance
+    dmax = 0.0
+    index = 0
+    end = len(points) - 1
+    
+    # Line defined by points[0] and points[end]
+    x1, y1 = points[0]
+    x2, y2 = points[end]
+    
+    # Precompute line vector
+    dx = x2 - x1
+    dy = y2 - y1
+    
+    # Normalize if length > 0
+    line_len_sq = dx*dx + dy*dy
+    
+    if line_len_sq == 0:
+        # Start and end are same, dist is dist to point
+        for i in range(1, end):
+            px, py = points[i]
+            d = np.sqrt((px - x1)**2 + (py - y1)**2)
+            if d > dmax:
+                index = i
+                dmax = d
+    else:
+        # Perpendicular distance formula
+        for i in range(1, end):
+            px, py = points[i]
+            # Distance from point to line segment
+            # |(y2-y1)x0 - (x2-x1)y0 + x2y1 - y2x1| / sqrt((y2-y1)^2 + (x2-x1)^2)
+            num = abs(dy*px - dx*py + x2*y1 - y2*x1)
+            d = num / np.sqrt(line_len_sq)
+            if d > dmax:
+                index = i
+                dmax = d
+
+    # If max distance is greater than epsilon, recursively simplify
+    if dmax > epsilon:
+        rec_results1 = _simplify_path_rdp(points[:index+1], epsilon)
+        rec_results2 = _simplify_path_rdp(points[index:], epsilon)
+        return rec_results1[:-1] + rec_results2
+    else:
+        return [points[0], points[end]]
+
+
+def _smooth_path_chaikin(points: List[Tuple[float, float]], iterations: int = 1) -> List[Tuple[float, float]]:
+    """Smooth path using Chaikin's algorithm (corner cutting)."""
+    if len(points) < 3 or iterations < 1:
+        return points
+
+    current_points = points
+    for _ in range(iterations):
+        new_points = [current_points[0]]
+        for i in range(len(current_points) - 1):
+            p0 = current_points[i]
+            p1 = current_points[i+1]
+            
+            # Cut at 25% and 75%
+            q = (0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1])
+            r = (0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1])
+            
+            new_points.append(q)
+            new_points.append(r)
+        
+        new_points.append(current_points[-1])
+        current_points = new_points
+        
+    return current_points
 
 
 def _pixels_to_mm(path: List[Tuple[int, int]], height: int, pixel_size: float) -> List[Tuple[float, float]]:

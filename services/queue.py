@@ -164,7 +164,7 @@ def create_job_from_manual_upload(
     generated_path = cfg.generated_dir / f"{asset_key}_manual_generated.png"
 
     image_processing.save_upload(upload, original_path)
-    resized = image_processing.resize_image_bytes(original_path.read_bytes(), (400, 400))
+    resized = image_processing.resize_image_bytes(original_path.read_bytes(), (1600, 1600))
     image_processing.save_image_bytes(resized, generated_path)
 
     with session_scope() as session:
@@ -196,7 +196,7 @@ def _generate_caricature(job_id: int, gemini_client: GeminiClient, cfg: QueueCon
         image_bytes = original_path.read_bytes()
 
     generated_bytes = gemini_client.generate_caricature(image_bytes, prompt)
-    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (400, 400))
+    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (1600, 1600))
     generated_path = cfg.generated_dir / f"{asset_key}_generated.png"
     image_processing.save_image_bytes(resized_bytes, generated_path)
 
@@ -276,18 +276,20 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
 
     try:
-        # Custom settings optimized for quality and speed
+        # Custom settings optimized for high-resolution processing (1600px)
         settings = gcode_service.GCodeSettings(
-            pixel_size_mm=0.25,  # Good balance of size and quality
+            pixel_size_mm=0.0625,  # 100mm / 1600px = 0.0625mm per pixel
             feed_rate=8000,  # Very fast drawing speed
             travel_height=5.0,
             draw_height=0.0,
             invert_z=_is_z_inverted(config),
-            threshold=250,  # Higher threshold for cleaner lines
-            blur_radius=0.3,  # Even less blurring for sharper lines
-            thinning_iterations=8,  # Even fewer iterations to preserve detail
-            point_skip=1,  # No point skipping for better quality
-            min_move_mm=0.05,  # Much smaller minimum moves for finer detail
+            threshold=250,  # High threshold for cleaner lines
+            blur_radius=1.0,  # Reduced blur to preserve eye details
+            thinning_iterations=20,  # Standard iterations
+            point_skip=1,  # Get all raw pixels, let RDP handle simplification
+            simplification_error=0.1,  # RDP tolerance (0.1mm): turns pixels into vectors
+            smoothing_iterations=2,  # Chaikin iterations: rounds off sharp corners
+            min_move_mm=0.1,  # Keep small details (eyes) but filter noise
             pen_dwell_seconds=0.05,  # Shorter dwell time
         )
         gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
