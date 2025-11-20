@@ -24,7 +24,7 @@
     tableBody.innerHTML = "";
     if (jobs.length === 0) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="5" style="text-align: center; color: var(--text-muted);">No jobs in queue</td>`;
+      tr.innerHTML = `<td colspan="6" style="text-align: center; color: var(--text-muted);">No jobs in queue</td>`;
       tableBody.appendChild(tr);
       return;
     }
@@ -42,6 +42,7 @@
         <td>${job.id}</td>
         <td><span class="status-badge">${job.status}</span></td>
         <td>${new Date(job.created_at).toLocaleString()}</td>
+        <td>${job.email || "—"}</td>
         <td>${job.requester || "N/A"}</td>
         <td>
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">

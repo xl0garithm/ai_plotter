@@ -5,4 +5,5 @@ Pillow
 numpy
 pyserial
 pytest
+scikit-image
 

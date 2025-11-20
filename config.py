@@ -35,6 +35,14 @@ class Config:
     # Queue
     MAX_RETRY = int(os.environ.get("PLOTTER_MAX_RETRY", "3"))
 
+    # Vectorization / image conversion
+    VECTOR_RESOLUTION = int(os.environ.get("PLOTTER_VECTOR_RESOLUTION", "1600"))
+    VECTORIZE_THRESHOLD = int(os.environ.get("PLOTTER_VECTORIZE_THRESHOLD", "240"))
+    VECTORIZE_SIMPLIFY_PX = float(os.environ.get("PLOTTER_VECTORIZE_SIMPLIFY_PX", "2.0"))
+    VECTORIZE_MIN_POINTS = int(os.environ.get("PLOTTER_VECTORIZE_MIN_POINTS", "24"))
+    VECTORIZE_DOWNSAMPLE_STEP = int(os.environ.get("PLOTTER_VECTORIZE_DOWNSAMPLE_STEP", "1"))
+    VECTORIZE_STROKE_WIDTH = float(os.environ.get("PLOTTER_VECTORIZE_STROKE_WIDTH", "3.0"))
+
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads
 

@@ -17,7 +17,7 @@ from models import Job
 from services.database import session_scope
 from services.gemini_client import GeminiClient, GeminiClientError
 from services import gcode as gcode_service
-from services import image_processing
+from services import image_processing, vectorizer
 from services.plotter import PlotterController, PlotterError
 
 
@@ -59,6 +59,12 @@ def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
     return QueueConfig(upload_dir=upload_dir, generated_dir=generated_dir, gcode_dir=gcode_dir)
 
 
+def _config_value(config: Union[Config, Dict[str, Any]], name: str, default: Any) -> Any:
+    if isinstance(config, dict):
+        return config.get(name, default)
+    return getattr(config, name, default)
+
+
 def _logger():
     try:
         return current_app.logger
@@ -88,6 +94,41 @@ def _is_z_inverted(config: Union[Config, Dict[str, Any]]) -> bool:
     return bool(value)
 
 
+def _vectorize_and_store(
+    asset_key: str,
+    image_path: Path,
+    cfg: QueueConfig,
+    config: Union[Config, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Run vectorization and persist SVG/JSON artifacts."""
+
+    threshold = int(_config_value(config, "VECTORIZE_THRESHOLD", 240))
+    simplify = float(_config_value(config, "VECTORIZE_SIMPLIFY_PX", 2.0))
+    min_points = int(_config_value(config, "VECTORIZE_MIN_POINTS", 24))
+    downsample_step = int(_config_value(config, "VECTORIZE_DOWNSAMPLE_STEP", 1))
+    stroke_px = float(_config_value(config, "VECTORIZE_STROKE_WIDTH", 3.0))
+
+    vector_data = vectorizer.vectorize_image(
+        image_path,
+        threshold=threshold,
+        simplify_tolerance=simplify,
+        min_path_points=min_points,
+        downsample_step=downsample_step,
+    )
+
+    vector_json = cfg.generated_dir / f"{asset_key}_vector.json"
+    vector_svg = cfg.generated_dir / f"{asset_key}_vector.svg"
+    vectorizer.save_vector_data(vector_data, vector_json)
+    vectorizer.save_svg(vector_data, vector_svg, stroke_px=stroke_px)
+
+    return {
+        "vector_data_path": str(vector_json),
+        "vector_svg_path": str(vector_svg),
+        "vector_width": vector_data.width,
+        "vector_height": vector_data.height,
+    }
+
+
 def _touch_job(session, job_id: int) -> Job:
     job = session.get(Job, job_id)
     if job is None:
@@ -109,12 +150,19 @@ def create_job_from_upload(
     *,
     prompt: Optional[str],
     requester: Optional[str],
+    email: str,
     config: Config,
     gemini_client: GeminiClient,
 ) -> Dict[str, Any]:
     """Create a new job from an uploaded image and trigger generation."""
     if upload is None or upload.filename == "":
         raise QueueError("No image provided.")
+
+    normalized_email = (email or "").strip()
+    if not normalized_email:
+        raise QueueError("Email address is required.")
+    if "@" not in normalized_email:
+        raise QueueError("A valid email address is required.")
 
     cfg = _get_queue_config(config)
     asset_key = image_processing.generate_asset_key()
@@ -127,6 +175,7 @@ def create_job_from_upload(
             asset_key=asset_key,
             status=JobStatus.SUBMITTED.value,
             requester=requester,
+            email=normalized_email,
             prompt=prompt,
             original_path=str(original_path),
         )
@@ -135,7 +184,7 @@ def create_job_from_upload(
         job_id = job.id
 
     try:
-        _generate_caricature(job_id, gemini_client, cfg, prompt)
+        _generate_caricature(job_id, gemini_client, cfg, prompt, config)
     except GeminiClientError as exc:
         _logger().exception("Gemini generation failed for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
@@ -164,8 +213,10 @@ def create_job_from_manual_upload(
     generated_path = cfg.generated_dir / f"{asset_key}_manual_generated.png"
 
     image_processing.save_upload(upload, original_path)
-    resized = image_processing.resize_image_bytes(original_path.read_bytes(), (1600, 1600))
+    resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
+    resized = image_processing.resize_image_bytes(original_path.read_bytes(), (resolution, resolution))
     image_processing.save_image_bytes(resized, generated_path)
+    vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
 
     with session_scope() as session:
         job = Job(
@@ -178,12 +229,19 @@ def create_job_from_manual_upload(
         )
         session.add(job)
         session.flush()
+        job.metadata_json = {**(job.metadata_json or {}), **vector_meta}
         job_id = job.id
 
     return get_job(job_id, admin=True)
 
 
-def _generate_caricature(job_id: int, gemini_client: GeminiClient, cfg: QueueConfig, prompt: Optional[str]) -> None:
+def _generate_caricature(
+    job_id: int,
+    gemini_client: GeminiClient,
+    cfg: QueueConfig,
+    prompt: Optional[str],
+    config: Config,
+) -> None:
     """Invoke Gemini to generate a caricature for the job."""
     set_job_status(job_id, JobStatus.GENERATING)
 
@@ -195,16 +253,21 @@ def _generate_caricature(job_id: int, gemini_client: GeminiClient, cfg: QueueCon
             raise QueueError("Original image not found on disk.")
         image_bytes = original_path.read_bytes()
 
+    resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
     generated_bytes = gemini_client.generate_caricature(image_bytes, prompt)
-    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (1600, 1600))
+    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (resolution, resolution))
     generated_path = cfg.generated_dir / f"{asset_key}_generated.png"
     image_processing.save_image_bytes(resized_bytes, generated_path)
+    vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
 
     with session_scope() as session:
         job = _touch_job(session, job_id)
         job.generated_path = str(generated_path)
         job.status = JobStatus.GENERATED.value
         job.error_message = None
+        metadata = job.metadata_json or {}
+        metadata.update(vector_meta)
+        job.metadata_json = metadata
 
 
 def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
@@ -266,6 +329,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
 
     cfg = _get_queue_config(config)
 
+    metadata: Dict[str, Any] = {}
     with session_scope() as session:
         obj = _touch_job(session, job_id)
         if not obj.generated_path:
@@ -274,25 +338,37 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         if not generated_path.exists():
             raise QueueError("Generated image file missing.")
         gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
+        metadata = obj.metadata_json or {}
 
     try:
-        # Custom settings optimized for high-resolution processing (1600px)
+        vector_data: vectorizer.VectorData | None = None
+        vector_data_path = metadata.get("vector_data_path")
+        if vector_data_path:
+            candidate = Path(vector_data_path)
+            if candidate.exists():
+                vector_data = vectorizer.load_vector_data(candidate)
+
+        vector_resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
+        target_size_mm = 100.0  # physical drawing size
+        pixel_size_mm = target_size_mm / vector_resolution
+
         settings = gcode_service.GCodeSettings(
-            pixel_size_mm=0.0625,  # 100mm / 1600px = 0.0625mm per pixel
-            feed_rate=8000,  # Very fast drawing speed
+            pixel_size_mm=pixel_size_mm,
+            feed_rate=8000,
             travel_height=5.0,
             draw_height=0.0,
             invert_z=_is_z_inverted(config),
-            threshold=250,  # High threshold for cleaner lines
-            blur_radius=1.0,  # Reduced blur to preserve eye details
-            thinning_iterations=20,  # Standard iterations
-            point_skip=1,  # Get all raw pixels, let RDP handle simplification
-            simplification_error=0.1,  # RDP tolerance (0.1mm): turns pixels into vectors
-            smoothing_iterations=2,  # Chaikin iterations: rounds off sharp corners
-            min_move_mm=0.1,  # Keep small details (eyes) but filter noise
-            pen_dwell_seconds=0.05,  # Shorter dwell time
+            min_move_mm=0.1,
+            pen_dwell_seconds=0.05,
         )
-        gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
+
+        if vector_data:
+            gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
+        else:
+            _logger().warning(
+                "Vector data missing for job %s; falling back to raster conversion.", job_id
+            )
+            gcode_service.image_to_gcode(generated_path, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
         _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))

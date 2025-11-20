@@ -9,6 +9,8 @@ from typing import List, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageFilter
 
+from services.vectorizer import VectorData
+
 
 class GCodeError(RuntimeError):
     """Raised when G-code generation fails."""
@@ -19,7 +21,7 @@ class GCodeSettings:
     """Settings controlling image-to-G-code conversion."""
 
     pixel_size_mm: float = 0.25
-    feed_rate: int = 500
+    feed_rate: int = 2000
     travel_height: float = 5.0
     draw_height: float = 0.0
     invert_z: bool = False
@@ -30,6 +32,7 @@ class GCodeSettings:
     min_move_mm: float = 0.25
     simplification_error: float = 0.1
     smoothing_iterations: int = 2
+    pen_dwell_seconds: float = 0.0
 
 
 def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings | None = None) -> Path:
@@ -88,11 +91,74 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
         commands.append(f"F{settings.feed_rate} ; set feed rate")
         commands.append("M3 S90 ; pen down")
+        if settings.pen_dwell_seconds > 0:
+            commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
 
         for x, y in mm_points:
             commands.append(f"G1 X{x:.2f} Y{y:.2f}")
 
         commands.append("M5 ; pen up")
+        if settings.pen_dwell_seconds > 0:
+            commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
+
+    commands.extend(
+        [
+            "G0 X0.00 Y0.00 ; return to origin",
+            "G4 P2.0 ; long dwell for home completion",
+            "M5 ; pen up",
+        ]
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(commands), encoding="utf-8")
+    return output_path
+
+
+def vector_data_to_gcode(
+    vector_data: VectorData, output_path: Path, settings: GCodeSettings | None = None
+) -> Path:
+    """Convert traced vector paths directly into G-code."""
+    if settings is None:
+        settings = GCodeSettings()
+
+    if not vector_data.paths:
+        raise GCodeError("Vector data did not contain any drawable paths.")
+
+    if vector_data.width <= 0 or vector_data.height <= 0:
+        raise GCodeError("Vector data has invalid dimensions.")
+
+    commands: List[str] = []
+    pixel = settings.pixel_size_mm
+    height = vector_data.height
+
+    for path in vector_data.paths:
+        if len(path) < 2:
+            continue
+
+        mm_points = [
+            (x * pixel, (height - y - 1) * pixel)
+            for x, y in path
+        ]
+        mm_points = _filter_min_move(mm_points, settings.min_move_mm)
+        if len(mm_points) < 2:
+            continue
+
+        x0, y0 = mm_points[0]
+        commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
+        commands.append(f"F{settings.feed_rate} ; set feed rate")
+        commands.append("M3 S90 ; pen down")
+        if settings.pen_dwell_seconds > 0:
+            commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
+
+        for x, y in mm_points:
+            commands.append(f"G1 X{x:.2f} Y{y:.2f}")
+
+        commands.append("M5 ; pen up")
+        if settings.pen_dwell_seconds > 0:
+            commands.append(f"G4 P{settings.pen_dwell_seconds:.2f} ; dwell")
+
+    if not commands:
+        raise GCodeError("Vector data did not produce drawable paths.")
 
     commands.extend(
         [

@@ -58,13 +58,20 @@ def submit_job() -> Response:
     """Create a new job from an uploaded image."""
     image = request.files.get("image")
     prompt = request.form.get("prompt")
+    email = (request.form.get("email") or "").strip()
     requester = request.form.get("requester") or request.remote_addr
+
+    if not email:
+        return jsonify({"error": "Email is required."}), 400
+    if "@" not in email:
+        return jsonify({"error": "Please provide a valid email address."}), 400
 
     try:
         job = create_job_from_upload(
             image,
             prompt=prompt,
             requester=requester,
+            email=email,
             config=current_app.config,
             gemini_client=_gemini_client(),
         )

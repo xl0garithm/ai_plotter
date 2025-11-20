@@ -19,6 +19,7 @@ class Job(Base):
     asset_key = Column(String(64), unique=True, nullable=False)
     status = Column(String(32), nullable=False, default="submitted")
     requester = Column(String(128), nullable=True)
+    email = Column(String(255), nullable=True)
     prompt = Column(Text, nullable=True)
     original_path = Column(Text, nullable=False)
     generated_path = Column(Text, nullable=True)
@@ -46,6 +47,7 @@ class Job(Base):
             data.update(
                 {
                     "requester": self.requester,
+                    "email": self.email,
                     "prompt": self.prompt,
                     "metadata": self.metadata_json,
                     "generated_path": self.generated_path,

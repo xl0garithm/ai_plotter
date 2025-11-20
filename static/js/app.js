@@ -12,6 +12,7 @@
   const cancelBtn = document.getElementById("cancel-btn");
   const jobStatusList = document.getElementById("job-status");
   const captureSection = document.getElementById("capture-section");
+  const emailInput = document.getElementById("email-input");
 
   let stream;
   let capturedBlob;
@@ -64,13 +65,21 @@
 
   async function submitPhoto() {
     if (!capturedBlob) return;
-    
+
+    const emailValue = emailInput?.value.trim();
+    if (!emailValue) {
+      alert("Please enter your email address before submitting.");
+      emailInput?.focus();
+      return;
+    }
+
     submitBtn.disabled = true;
     submitBtn.textContent = "Generating...";
-    
+
     const formData = new FormData();
     formData.append("image", capturedBlob, "capture.png");
-    
+    formData.append("email", emailValue);
+
     // Get selected style
     const selectedStyle = document.querySelector('input[name="style"]:checked')?.value || "normal";
     formData.append("prompt", `Make it look ${selectedStyle}.`);

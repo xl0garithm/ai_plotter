@@ -6,7 +6,7 @@ Python/Flask web application for capturing webcam images, generating AI caricatu
 - Browser UI with webcam preview, capture, retake, and submission flow.
 - Gemini REST integration for caricature generation with manual confirmation step.
 - Persistent job queue with admin dashboard for approval, cancellation, and print control.
-- Automatic image scaling to 400×400 px and outline-to-G-code conversion.
+- High-resolution (1600×1600) vectorization pipeline that preserves the Gemini outline and outputs SVG previews.
 - USB serial plotter driver that streams generated G-code to the robot.
 
 ## Prerequisites
@@ -35,6 +35,11 @@ Copy `env.example` to `.env` (or export these variables manually):
 | `PLOTTER_DRY_RUN` | When `true`, skip serial output and dump G-code to `.dryrun.txt` |
 | `PLOTTER_INVERT_Z` | Set `true` if your plotter lowers the pen with higher Z values |
 | `PLOTTER_LINE_DELAY` | Extra seconds to wait between each streamed G-code line |
+| `PLOTTER_VECTOR_RESOLUTION` | Square resolution (px) used before vectorization (default `1600`) |
+| `PLOTTER_VECTORIZE_THRESHOLD` | 0-255 grayscale cutoff for strokes (default `240`) |
+| `PLOTTER_VECTORIZE_SIMPLIFY_PX` | RDP simplification tolerance in pixels (default `2.0`) |
+| `PLOTTER_VECTORIZE_MIN_POINTS` | Minimum contour points to keep a path (default `24`) |
+| `PLOTTER_VECTORIZE_STROKE_WIDTH` | Preview SVG stroke width in px (default `3.0`) |
 
 ## Running
 ```bash
