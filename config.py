@@ -43,6 +43,9 @@ class Config:
     VECTORIZE_DOWNSAMPLE_STEP = int(os.environ.get("PLOTTER_VECTORIZE_DOWNSAMPLE_STEP", "1"))
     VECTORIZE_STROKE_WIDTH = float(os.environ.get("PLOTTER_VECTORIZE_STROKE_WIDTH", "3.0"))
 
+    # Plotting behavior
+    PLOTTER_FEED_RATE = int(os.environ.get("PLOTTER_FEED_RATE", "5000"))
+
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads
 

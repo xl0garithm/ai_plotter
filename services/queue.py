@@ -394,10 +394,12 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         vector_resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
         target_size_mm = 100.0  # physical drawing size
         pixel_size_mm = target_size_mm / vector_resolution
+        default_settings = gcode_service.GCodeSettings()
+        feed_rate = int(_config_value(config, "PLOTTER_FEED_RATE", default_settings.feed_rate))
 
         settings = gcode_service.GCodeSettings(
             pixel_size_mm=pixel_size_mm,
-            feed_rate=8000,
+            feed_rate=feed_rate,
             travel_height=5.0,
             draw_height=0.0,
             invert_z=_is_z_inverted(config),

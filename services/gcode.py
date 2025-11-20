@@ -35,10 +35,16 @@ class GCodeSettings:
     pen_dwell_seconds: float = 0.0
 
 
+def _validate_feed_rate(settings: GCodeSettings) -> None:
+    if settings.feed_rate is None or settings.feed_rate <= 0:
+        raise GCodeError("Feed rate must be a positive value.")
+
+
 def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings | None = None) -> Path:
     """Convert a raster image to G-code file."""
     if settings is None:
         settings = GCodeSettings()
+    _validate_feed_rate(settings)
 
     if not image_path.exists():
         raise GCodeError(f"Image '{image_path}' does not exist.")
@@ -120,6 +126,7 @@ def vector_data_to_gcode(
     """Convert traced vector paths directly into G-code."""
     if settings is None:
         settings = GCodeSettings()
+    _validate_feed_rate(settings)
 
     if not vector_data.paths:
         raise GCodeError("Vector data did not contain any drawable paths.")
