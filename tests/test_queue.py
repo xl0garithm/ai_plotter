@@ -31,16 +31,20 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
     )
 
     assert job["status"] == queue.JobStatus.GENERATED.value
-    generated_path = Path(queue.get_job(job["id"], admin=True)["generated_path"])
+    admin_job = queue.get_job(job["id"], admin=True)
+    generated_path = Path(admin_job["generated_path"])
     assert generated_path.exists()
+    assert generated_path.name.startswith(f"{job['id']}-")
+    assert generated_path.suffix == ".png"
 
-    job = queue.approve_job(job["id"])
+    job = queue.confirm_job(job["id"])
 
-    sent_paths = []
+    sent_lines = []
 
     class DummyPlotter:
         def __init__(self, *args, **kwargs):
             self.connected = False
+            self.rehome_called = False
 
         def connect(self):
             self.connected = True
@@ -48,19 +52,26 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
         def disconnect(self):
             self.connected = False
 
-        def send_gcode_file(self, path: Path):
-            sent_paths.append(Path(path))
+        def rehome(self):
+            self.rehome_called = True
+
+        def send_gcode_lines(self, lines, *, progress_callback=None):
+            for idx, line in enumerate(lines, start=1):
+                sent_lines.append(line)
+                if progress_callback:
+                    progress_callback(idx)
 
     monkeypatch.setattr(queue, "PlotterController", DummyPlotter)
 
     job = queue.start_print_job(job["id"], config)
 
     assert job["status"] == queue.JobStatus.COMPLETED.value
-    assert sent_paths, "G-code should be sent to plotter"
-    assert sent_paths[0].exists()
-    assert "G1 X" in sent_paths[0].read_text(encoding="utf-8")
+    assert sent_lines, "G-code should be streamed to plotter"
     stored_gcode = Path(queue.get_job(job["id"], admin=True)["gcode_path"])
-    assert stored_gcode == sent_paths[0]
+    assert stored_gcode.exists()
+    assert stored_gcode.name.startswith(f"{job['id']}-")
+    assert stored_gcode.suffix == ".gcode"
+    assert "G1 X" in stored_gcode.read_text(encoding="utf-8")
 
 
 def test_start_print_job_dry_run(test_storage, sample_upload):
@@ -82,14 +93,68 @@ def test_start_print_job_dry_run(test_storage, sample_upload):
         config=config,
         gemini_client=StubGemini(),
     )
-    queue.approve_job(job["id"])
-
     result = queue.start_print_job(job["id"], config)
 
     assert result["status"] == queue.JobStatus.COMPLETED.value
     gcode_path = Path(queue.get_job(job["id"], admin=True)["gcode_path"])
+    assert gcode_path.name.startswith(f"{job['id']}-")
+    assert gcode_path.suffix == ".gcode"
     dry_run_path = gcode_path.with_suffix(".dryrun.txt")
     assert dry_run_path.exists()
     assert dry_run_path.read_text(encoding="utf-8") == gcode_path.read_text(encoding="utf-8")
     assert "G1 X" in gcode_path.read_text(encoding="utf-8")
 
+
+def test_print_job_rehomes_when_flagged(monkeypatch, test_storage, sample_upload):
+    upload = sample_upload()
+    config = {
+        "UPLOAD_DIR": test_storage["UPLOAD_DIR"],
+        "GENERATED_DIR": test_storage["GENERATED_DIR"],
+        "GCODE_DIR": test_storage["GCODE_DIR"],
+        "SERIAL_PORT": test_storage["SERIAL_PORT"],
+        "SERIAL_BAUDRATE": test_storage["SERIAL_BAUDRATE"],
+        "PLOTTER_DRY_RUN": False,
+        "PLOTTER_INVERT_Z": False,
+    }
+
+    job = queue.create_job_from_upload(
+        upload,
+        prompt="Rehome test",
+        requester="tester",
+        config=config,
+        gemini_client=StubGemini(),
+    )
+    queue.confirm_job(job["id"])
+
+    class RehomePlotter:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.connected = False
+            self.rehome_called = False
+            RehomePlotter.instances.append(self)
+
+        def connect(self):
+            self.connected = True
+
+        def disconnect(self):
+            self.connected = False
+
+        def rehome(self):
+            self.rehome_called = True
+
+        def send_gcode_lines(self, lines, *, progress_callback=None):
+            for idx, _ in enumerate(lines, start=1):
+                if progress_callback:
+                    progress_callback(idx)
+            # simulate an external cancel request flag
+            queue._plotter_state.should_rehome_on_cancel = True
+
+    monkeypatch.setattr(queue, "PlotterController", RehomePlotter)
+
+    result = queue.start_print_job(job["id"], config)
+
+    assert result["status"] == queue.JobStatus.COMPLETED.value
+    assert RehomePlotter.instances, "Plotter should be instantiated"
+    assert RehomePlotter.instances[-1].rehome_called is True
+    assert queue._plotter_state.should_rehome_on_cancel is False

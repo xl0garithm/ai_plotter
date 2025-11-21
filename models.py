@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 from sqlalchemy import Column, DateTime, Integer, JSON, String, Text
@@ -59,8 +60,17 @@ class Job(Base):
                     "approved_at": self.approved_at.isoformat() if self.approved_at else None,
                     "started_at": self.started_at.isoformat() if self.started_at else None,
                     "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+                    "asset_key": self.asset_key,
                 }
             )
+            asset_filename = None
+            for candidate in (self.gcode_path, self.generated_path, self.original_path):
+                if candidate:
+                    asset_filename = Path(candidate).name
+                    break
+            if asset_filename is None and self.asset_key:
+                asset_filename = f"{self.asset_key}.png"
+            data["asset_filename"] = asset_filename
 
         return data
 

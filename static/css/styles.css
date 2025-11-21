@@ -479,9 +479,14 @@ tr:hover {
 
 .print-progress-meta {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   margin-top: 0.5rem;
   font-weight: 600;
+}
+
+.print-progress-card button {
+  margin-top: 0.75rem;
+  width: 100%;
 }
 
 .print-progress-note {

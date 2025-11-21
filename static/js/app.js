@@ -199,7 +199,6 @@
       });
       if (!response.ok) throw new Error("Confirmation failed");
       resetUI();
-      alert("Job submitted to queue successfully!");
     } catch (err) {
       console.error(err);
       alert("Could not confirm job.");
@@ -241,6 +240,9 @@
     retakeBtn.disabled = true;
     submitBtn.disabled = true;
     submitBtn.textContent = "Generate";
+    if (emailInput) {
+      emailInput.value = "";
+    }
     
     if (!stream) {
         startCamera();

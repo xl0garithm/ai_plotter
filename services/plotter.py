@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 import serial
 
@@ -185,12 +185,40 @@ class PlotterController:
         """Signal that the current streaming operation should stop."""
         self._cancel_requested = True
 
+    def rehome(self) -> None:
+        """Raise the pen and return the carriage to origin."""
+        self._ensure_connection()
+        assert self._serial is not None
+        self._cancel_requested = False
+        commands = (
+            "M5 ; pen up",
+            "G0 X0.00 Y0.00 ; return to origin",
+            "G4 P0.50 ; settle after rehome",
+        )
+        for idx, line in enumerate(commands, start=1):
+            logging.info("REHOME CMD %d: %s", idx, line.rstrip("\r\n"))
+            ok = _send_line_and_wait(
+                ser=self._serial,
+                line=line,
+                ack=self.ack,
+                timeout=self.timeout,
+                retries=self.send_retries,
+                send_delay=self.line_delay,
+            )
+            if not ok:
+                raise PlotterError("Failed to rehome plotter.")
+
     def _ensure_connection(self) -> None:
         if not self._serial or not self._serial.is_open:
             raise PlotterError("Serial connection is not open.")
 
     # --- sending G-code ---
-    def send_gcode_lines(self, lines: Iterable[str]) -> None:
+    def send_gcode_lines(
+        self,
+        lines: Iterable[str],
+        *,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> None:
         """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling."""
         self._ensure_connection()
         self._cancel_requested = False
@@ -217,14 +245,24 @@ class PlotterController:
             if not ok:
                 # add context about which line failed
                 raise PlotterError(f"Failed to transmit line (line {idx}): {line.rstrip()}")
+            if progress_callback:
+                try:
+                    progress_callback(idx)
+                except Exception:
+                    logging.debug("Progress callback failed", exc_info=True)
 
-    def send_gcode_file(self, file_path: Path) -> None:
+    def send_gcode_file(
+        self,
+        file_path: Path,
+        *,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> None:
         """Send a G-code file to the plotter."""
         if not file_path.exists():
             raise PlotterError(f"G-code file '{file_path}' not found.")
         with file_path.open("r", encoding="utf-8") as fp:
             # stream lines directly to preserve memory characteristics
-            self.send_gcode_lines(fp)
+            self.send_gcode_lines(fp, progress_callback=progress_callback)
 
     # --- low-level helpers ---
     def _flush_startup(self) -> None:

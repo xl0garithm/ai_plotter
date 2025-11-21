@@ -50,4 +50,5 @@ def logout():
 @admin_bp.get("/")
 def dashboard():
     """Render the admin dashboard."""
-    return render_template("admin.html")
+    enable_manual_upload = current_app.config.get("ENABLE_MANUAL_UPLOAD", False)
+    return render_template("admin.html", enable_manual_upload=enable_manual_upload)

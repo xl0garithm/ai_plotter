@@ -13,6 +13,7 @@
         <a href="{{ url_for('admin.logout') }}" class="button secondary" style="text-decoration: none; padding: 0.75rem 1.5rem; background: var(--secondary-color); color: #fff; border-radius: var(--radius);">Logout</a>
       </div>
 
+      {% if enable_manual_upload %}
       <section class="card">
         <h2>Manual Upload</h2>
         <form id="manual-upload-form">
@@ -25,6 +26,7 @@
           <button type="submit">Upload & Queue</button>
         </form>
       </section>
+      {% endif %}
 
       <section class="card" style="max-width: 100%;">
         <h2>Job Queue</h2>
@@ -33,6 +35,7 @@
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Image ID</th>
                 <th>Status</th>
                 <th>Submitted</th>
                 <th>Email</th>
@@ -56,8 +59,10 @@
         </div>
         <div class="print-progress-meta">
           <span id="print-progress-percent">0%</span>
-          <span id="print-progress-eta">Estimating…</span>
         </div>
+        <button id="print-progress-cancel" class="danger" type="button">
+          Cancel Print
+        </button>
         <p class="print-progress-note">
           Please wait—new prints are blocked until this run completes.
         </p>

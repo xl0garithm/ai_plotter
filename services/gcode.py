@@ -151,7 +151,6 @@ def vector_data_to_gcode(
     height = vector_data.height
     total_draw_mm = 0.0
     total_travel_mm = 0.0
-    line_count = 0
     path_count = 0
     prev_endpoint: Tuple[float, float] | None = None
 
@@ -174,7 +173,6 @@ def vector_data_to_gcode(
         total_draw_mm += path_length
         prev_endpoint = mm_points[-1]
         path_count += 1
-        line_count += len(mm_points)
 
         x0, y0 = mm_points[0]
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
@@ -213,12 +211,14 @@ def vector_data_to_gcode(
     dwell_seconds = path_count * settings.pen_dwell_seconds * 2
     estimated_seconds = max(draw_minutes + travel_minutes, 0.0) * 60.0 + dwell_seconds + 5.0
 
+    total_gcode_lines = len(commands)
+
     return GCodeStats(
         total_draw_mm=total_draw_mm,
         total_travel_mm=total_travel_mm,
         estimated_seconds=estimated_seconds,
         path_count=path_count,
-        line_count=line_count,
+        line_count=total_gcode_lines,
     )
 
 

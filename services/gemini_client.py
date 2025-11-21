@@ -20,6 +20,7 @@ BASE_PROMPT = (
     "If any tone other than full black linework would appear, regenerate the drawing to keep it 100% monochrome. "
     "Exaggerate recognizable features in a playful live-caricature style while staying a single confident continuous outline with thick smooth strokes. "
     "Incorporate additional style instructions only through props, costume details, or silhouette changes—never by altering stroke color or adding tone. "
+    "If using text, make sure it is big, bold and with thick lines. "
     "Return just the clean black outline image with no captions, borders, signatures, or extra marks."
 )
 

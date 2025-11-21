@@ -11,9 +11,12 @@ from PIL import Image
 from werkzeug.datastructures import FileStorage
 
 
-def generate_asset_key() -> str:
-    """Generate a unique asset key for job assets."""
-    return uuid.uuid4().hex
+def generate_asset_key(job_id: int) -> str:
+    """Generate a stable asset basename for a job's artifacts."""
+    if job_id is None:
+        raise ValueError("job_id is required to generate an asset key.")
+    random_part = uuid.uuid4().hex[:8]
+    return f"{job_id}-{random_part}"
 
 
 def save_upload(file: FileStorage, destination: Path) -> Path:

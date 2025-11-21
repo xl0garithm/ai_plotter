@@ -12,8 +12,8 @@ class Config:
     BASE_DIR = Path(__file__).resolve().parent
     STORAGE_DIR = BASE_DIR / "storage"
     UPLOAD_DIR = BASE_DIR / "uploads"
-    GENERATED_DIR = BASE_DIR / "processed"
-    GCODE_DIR = BASE_DIR / "gcode"
+    GENERATED_DIR = STORAGE_DIR / "processed"
+    GCODE_DIR = STORAGE_DIR / "gcode"
     DB_PATH = STORAGE_DIR / "app.db"
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-this-secret")
@@ -49,6 +49,7 @@ class Config:
 
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads
+    ENABLE_MANUAL_UPLOAD = os.environ.get("ENABLE_MANUAL_UPLOAD", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     @classmethod
     def ensure_directories(cls) -> None:
