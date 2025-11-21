@@ -39,7 +39,9 @@ Copy `env.example` to `.env` (or export these variables manually):
 | `PLOTTER_VECTORIZE_THRESHOLD` | 0-255 grayscale cutoff for strokes (default `240`) |
 | `PLOTTER_VECTORIZE_SIMPLIFY_PX` | RDP simplification tolerance in pixels (default `2.0`) |
 | `PLOTTER_VECTORIZE_MIN_POINTS` | Minimum contour points to keep a path (default `24`) |
+| `PLOTTER_VECTORIZE_DOWNSAMPLE_STEP` | Keep every _n_th contour point before simplifying (default `1`) |
 | `PLOTTER_VECTORIZE_STROKE_WIDTH` | Preview SVG stroke width in px (default `3.0`) |
+| `PLOTTER_VECTORIZE_CROP_PADDING_RATIO` | Fractional padding kept around cropped vectors (default `0.05`) |
 
 ## Running
 ```bash

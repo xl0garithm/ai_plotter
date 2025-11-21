@@ -84,6 +84,68 @@ def vectorize_image(
     return VectorData(width=width, height=height, paths=paths)
 
 
+def crop_and_scale_vector_data(
+    data: VectorData,
+    *,
+    padding_ratio: float = 0.05,
+    target_dimension: int | None = None,
+) -> VectorData:
+    """Trim extra whitespace and scale vectors to fill the target dimension."""
+
+    if not data.paths:
+        return data
+
+    all_x: List[float] = []
+    all_y: List[float] = []
+    for path in data.paths:
+        for x, y in path:
+            all_x.append(float(x))
+            all_y.append(float(y))
+
+    if not all_x or not all_y:
+        return data
+
+    min_x = min(all_x)
+    max_x = max(all_x)
+    min_y = min(all_y)
+    max_y = max(all_y)
+
+    content_width = max_x - min_x
+    content_height = max_y - min_y
+    if content_width <= 0 or content_height <= 0:
+        return data
+
+    padding_ratio = max(0.0, padding_ratio)
+    pad = max(content_width, content_height) * padding_ratio
+
+    crop_min_x = max(min_x - pad, 0.0)
+    crop_min_y = max(min_y - pad, 0.0)
+    crop_max_x = min(max_x + pad, float(data.width))
+    crop_max_y = min(max_y + pad, float(data.height))
+
+    new_width = crop_max_x - crop_min_x
+    new_height = crop_max_y - crop_min_y
+    if new_width <= 0 or new_height <= 0:
+        return data
+
+    target = target_dimension or max(data.width, data.height)
+    scale = 1.0
+    max_extent = max(new_width, new_height)
+    if target and max_extent > 0:
+        scale = target / max_extent
+
+    scaled_paths: List[List[Point]] = []
+    for path in data.paths:
+        scaled_paths.append(
+            [((x - crop_min_x) * scale, (y - crop_min_y) * scale) for x, y in path]
+        )
+
+    scaled_width = max(1, int(round(new_width * scale)))
+    scaled_height = max(1, int(round(new_height * scale)))
+
+    return VectorData(width=scaled_width, height=scaled_height, paths=scaled_paths)
+
+
 def save_vector_data(data: VectorData, output_path: Path) -> Path:
     payload = {
         "width": data.width,

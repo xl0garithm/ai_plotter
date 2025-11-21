@@ -22,6 +22,20 @@
           <div class="media-container">
             <video id="webcam" autoplay playsinline></video>
             <canvas id="snapshot" hidden></canvas>
+            <div
+              id="alignment-overlay"
+              class="alignment-overlay"
+              aria-hidden="true"
+              hidden
+            >
+              <div class="alignment-overlay__ring">
+                <span class="alignment-overlay__guide alignment-overlay__guide--horizontal"></span>
+                <span class="alignment-overlay__guide alignment-overlay__guide--vertical"></span>
+              </div>
+              <p class="alignment-overlay__caption">
+                Center your head inside the circle to capture the largest, most detailed frame.
+              </p>
+            </div>
           </div>
           
           <div class="form-group">

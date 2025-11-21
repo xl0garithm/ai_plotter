@@ -16,6 +16,7 @@
   const captureMediaContainer = document.querySelector("#capture-section .media-container");
   const styleDescription = document.getElementById("style-description");
   const styleRadios = document.querySelectorAll('input[name="style"]');
+  const alignmentOverlay = document.getElementById("alignment-overlay");
 
   const STYLE_PRESETS = window.STYLE_PRESETS || {};
   const DEFAULT_STYLE_KEY = Object.keys(STYLE_PRESETS)[0] || "nerdy";
@@ -37,6 +38,11 @@
   let capturedBlob;
   let currentJobId;
 
+  function setAlignmentOverlayVisibility(shouldShow) {
+    if (!alignmentOverlay) return;
+    alignmentOverlay.hidden = !shouldShow;
+  }
+
   function updateCaptureAspectRatio() {
     if (!captureMediaContainer || !video.videoWidth || !video.videoHeight) return;
     captureMediaContainer.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
@@ -53,6 +59,7 @@
       canvas.hidden = true;
       captureBtn.disabled = false;
       startBtn.hidden = true; // Hide start button once started
+      setAlignmentOverlayVisibility(true);
       // Metadata may already be available once the stream starts playing
       if (video.readyState >= 2) {
         updateCaptureAspectRatio();
@@ -60,6 +67,7 @@
     } catch (err) {
       console.error("Error accessing camera:", err);
       alert("Unable to access the camera. Please ensure you have granted permission.");
+      setAlignmentOverlayVisibility(false);
     }
   }
 
@@ -75,6 +83,7 @@
     
     video.hidden = true;
     canvas.hidden = false;
+    setAlignmentOverlayVisibility(false);
     
     captureBtn.disabled = true;
     retakeBtn.disabled = false;
@@ -89,6 +98,7 @@
     capturedBlob = null;
     video.hidden = false;
     canvas.hidden = true;
+    setAlignmentOverlayVisibility(true);
     
     captureBtn.disabled = false;
     submitBtn.disabled = true;
@@ -225,6 +235,7 @@
     // Reset camera controls
     video.hidden = false;
     canvas.hidden = true;
+    setAlignmentOverlayVisibility(Boolean(stream));
     
     captureBtn.disabled = false;
     retakeBtn.disabled = true;

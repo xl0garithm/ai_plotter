@@ -42,6 +42,7 @@ class Config:
     VECTORIZE_MIN_POINTS = int(os.environ.get("PLOTTER_VECTORIZE_MIN_POINTS", "24"))
     VECTORIZE_DOWNSAMPLE_STEP = int(os.environ.get("PLOTTER_VECTORIZE_DOWNSAMPLE_STEP", "1"))
     VECTORIZE_STROKE_WIDTH = float(os.environ.get("PLOTTER_VECTORIZE_STROKE_WIDTH", "3.0"))
+    VECTORIZE_CROP_PADDING_RATIO = float(os.environ.get("PLOTTER_VECTORIZE_CROP_PADDING_RATIO", "0.05"))
 
     # Plotting behavior
     PLOTTER_FEED_RATE = int(os.environ.get("PLOTTER_FEED_RATE", "5000"))

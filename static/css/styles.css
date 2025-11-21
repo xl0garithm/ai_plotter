@@ -115,6 +115,91 @@ h1 {
   justify-content: center;
 }
 
+.media-container .alignment-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.35rem, 1vw, 0.65rem);
+  pointer-events: none;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  text-align: center;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.media-container .alignment-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 48%, rgba(0, 0, 0, 0.55) 65%, rgba(0, 0, 0, 0.9) 85%);
+  z-index: 0;
+}
+
+.alignment-overlay__ring {
+  position: relative;
+  z-index: 1;
+  height: clamp(260px, 72%, 520px);
+  aspect-ratio: 3 / 4;
+  width: auto;
+  max-width: min(45%, 320px);
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px / 750px;
+  box-shadow:
+    0 0 25px rgba(0, 0, 0, 0.65),
+    inset 0 0 20px rgba(0, 0, 0, 0.35);
+  transform: translateY(-6%);
+}
+
+.alignment-overlay__guide {
+  position: absolute;
+  display: block;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.alignment-overlay__guide--horizontal {
+  top: 40%;
+  left: 50%;
+  width: 62%;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.alignment-overlay__guide--vertical {
+  top: 5%;
+  left: 50%;
+  width: 2px;
+  height: 88%;
+  transform: translateX(-50%);
+  opacity: 0.65;
+}
+
+.alignment-overlay__caption {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  color: #f8fafc;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.75);
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+@media (max-width: 768px) {
+  .alignment-overlay__ring {
+    height: clamp(220px, 65%, 420px);
+    max-width: min(58%, 280px);
+    transform: translateY(-3%);
+  }
+  
+  .alignment-overlay__guide--horizontal {
+    width: 70%;
+    top: 42%;
+  }
+}
+
 video,
 canvas,
 .media-container img {

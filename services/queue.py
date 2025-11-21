@@ -108,6 +108,8 @@ def _vectorize_and_store(
     min_points = int(_config_value(config, "VECTORIZE_MIN_POINTS", 24))
     downsample_step = int(_config_value(config, "VECTORIZE_DOWNSAMPLE_STEP", 1))
     stroke_px = float(_config_value(config, "VECTORIZE_STROKE_WIDTH", 3.0))
+    crop_padding_ratio = float(_config_value(config, "VECTORIZE_CROP_PADDING_RATIO", 0.05))
+    resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
 
     vector_data = vectorizer.vectorize_image(
         image_path,
@@ -115,6 +117,11 @@ def _vectorize_and_store(
         simplify_tolerance=simplify,
         min_path_points=min_points,
         downsample_step=downsample_step,
+    )
+    vector_data = vectorizer.crop_and_scale_vector_data(
+        vector_data,
+        padding_ratio=crop_padding_ratio,
+        target_dimension=resolution,
     )
 
     vector_json = cfg.generated_dir / f"{asset_key}_vector.json"
@@ -391,9 +398,13 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
             )
 
     try:
-        vector_resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
         target_size_mm = 100.0  # physical drawing size
-        pixel_size_mm = target_size_mm / vector_resolution
+        configured_resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
+        effective_resolution = max(
+            configured_resolution,
+            max(vector_data.width, vector_data.height) if vector_data else 0,
+        )
+        pixel_size_mm = target_size_mm / max(effective_resolution, 1)
         default_settings = gcode_service.GCodeSettings()
         feed_rate = int(_config_value(config, "PLOTTER_FEED_RATE", default_settings.feed_rate))
 
