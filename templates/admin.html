@@ -45,6 +45,24 @@
         </div>
       </section>
     </main>
+    <div id="print-progress-overlay" class="print-progress-overlay" hidden aria-live="polite">
+      <div class="print-progress-card">
+        <p class="print-progress-title">Plotter is working…</p>
+        <p class="print-progress-job">
+          Printing job <span id="print-progress-job-id"></span>
+        </p>
+        <div class="progress-bar">
+          <div id="print-progress-bar" class="progress-bar__fill"></div>
+        </div>
+        <div class="print-progress-meta">
+          <span id="print-progress-percent">0%</span>
+          <span id="print-progress-eta">Estimating…</span>
+        </div>
+        <p class="print-progress-note">
+          Please wait—new prints are blocked until this run completes.
+        </p>
+      </div>
+    </div>
     <script src="{{ url_for('static', filename='js/admin.js') }}" defer></script>
   </body>
 </html>

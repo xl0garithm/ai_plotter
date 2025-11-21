@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -21,7 +22,7 @@ class GCodeSettings:
     """Settings controlling image-to-G-code conversion."""
 
     pixel_size_mm: float = 0.25
-    feed_rate: int = 5000
+    feed_rate: int = 10000
     travel_height: float = 5.0
     draw_height: float = 0.0
     invert_z: bool = False
@@ -33,6 +34,17 @@ class GCodeSettings:
     simplification_error: float = 0.1
     smoothing_iterations: int = 2
     pen_dwell_seconds: float = 0.0
+
+
+@dataclass
+class GCodeStats:
+    """Summary metrics for a generated G-code file."""
+
+    total_draw_mm: float
+    total_travel_mm: float
+    estimated_seconds: float
+    path_count: int
+    line_count: int
 
 
 def _validate_feed_rate(settings: GCodeSettings) -> None:
@@ -122,8 +134,8 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
 def vector_data_to_gcode(
     vector_data: VectorData, output_path: Path, settings: GCodeSettings | None = None
-) -> Path:
-    """Convert traced vector paths directly into G-code."""
+) -> GCodeStats:
+    """Convert traced vector paths directly into G-code and return draw statistics."""
     if settings is None:
         settings = GCodeSettings()
     _validate_feed_rate(settings)
@@ -137,6 +149,11 @@ def vector_data_to_gcode(
     commands: List[str] = []
     pixel = settings.pixel_size_mm
     height = vector_data.height
+    total_draw_mm = 0.0
+    total_travel_mm = 0.0
+    line_count = 0
+    path_count = 0
+    prev_endpoint: Tuple[float, float] | None = None
 
     for path in vector_data.paths:
         if len(path) < 2:
@@ -149,6 +166,15 @@ def vector_data_to_gcode(
         mm_points = _filter_min_move(mm_points, settings.min_move_mm)
         if len(mm_points) < 2:
             continue
+
+        travel_start = prev_endpoint if prev_endpoint is not None else (0.0, 0.0)
+        total_travel_mm += _distance(travel_start, mm_points[0])
+
+        path_length = _path_length(mm_points)
+        total_draw_mm += path_length
+        prev_endpoint = mm_points[-1]
+        path_count += 1
+        line_count += len(mm_points)
 
         x0, y0 = mm_points[0]
         commands.append(f"G0 X{x0:.2f} Y{y0:.2f} ; move to start")
@@ -167,6 +193,9 @@ def vector_data_to_gcode(
     if not commands:
         raise GCodeError("Vector data did not produce drawable paths.")
 
+    if prev_endpoint is not None:
+        total_travel_mm += _distance(prev_endpoint, (0.0, 0.0))
+
     commands.extend(
         [
             "G0 X0.00 Y0.00 ; return to origin",
@@ -177,7 +206,20 @@ def vector_data_to_gcode(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(commands), encoding="utf-8")
-    return output_path
+
+    feed_rate_mm_per_min = max(settings.feed_rate, 1)
+    draw_minutes = total_draw_mm / feed_rate_mm_per_min
+    travel_minutes = total_travel_mm / feed_rate_mm_per_min
+    dwell_seconds = path_count * settings.pen_dwell_seconds * 2
+    estimated_seconds = max(draw_minutes + travel_minutes, 0.0) * 60.0 + dwell_seconds + 5.0
+
+    return GCodeStats(
+        total_draw_mm=total_draw_mm,
+        total_travel_mm=total_travel_mm,
+        estimated_seconds=estimated_seconds,
+        path_count=path_count,
+        line_count=line_count,
+    )
 
 
 def _zhang_suen_thinning(mask: np.ndarray, iterations: int = 20) -> np.ndarray:
@@ -386,6 +428,16 @@ def _smooth_path_chaikin(points: List[Tuple[float, float]], iterations: int = 1)
         current_points = new_points
         
     return current_points
+
+
+def _distance(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+    return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+
+
+def _path_length(points: List[Tuple[float, float]]) -> float:
+    if len(points) < 2:
+        return 0.0
+    return sum(_distance(points[i], points[i + 1]) for i in range(len(points) - 1))
 
 
 def _pixels_to_mm(path: List[Tuple[int, int]], height: int, pixel_size: float) -> List[Tuple[float, float]]:

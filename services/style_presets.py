@@ -40,6 +40,17 @@ STYLE_PRESETS: Dict[str, Dict[str, str]] = {
             "with wobbling shoulders or cartoon sweat drops to telegraph motion, all while staying in one continuous line."
         ),
     },
+    "roast_me": {
+        "label": "Roast me",
+        "description": "Hyper-caricature that mercilessly exaggerates whatever stands out about the subject.",
+        "prompt": (
+            f"{BASE_PROMPT}"
+            "Do a brutal-but-fun roast caricature: spot the person’s most distinctive traits—ears, nose, jawline, hair swoop, "
+            "glasses, posture—and blow them way out of proportion while keeping the likeness readable. "
+            "Lean into asymmetry, highlight laugh lines or under-eye bags, and sprinkle in roast props (tiny crown, speech bubble, "
+            "award ribbon) only if they reinforce the joke. Keep everything a single confident outline."
+        ),
+    },
     "cyberpunk": {
         "label": "Cyberpunk",
         "description": "Angular strokes with subtle sci-fi visor highlights and high-tech flair.",

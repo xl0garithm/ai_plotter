@@ -418,17 +418,29 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
             pen_dwell_seconds=0.05,
         )
 
-        gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
+        gcode_stats = gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
         _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
         raise
+
+    metadata = {
+        **(metadata or {}),
+        "estimated_print_seconds": round(gcode_stats.estimated_seconds, 2),
+        "gcode_stats": {
+            "total_draw_mm": round(gcode_stats.total_draw_mm, 2),
+            "total_travel_mm": round(gcode_stats.total_travel_mm, 2),
+            "path_count": gcode_stats.path_count,
+            "line_count": gcode_stats.line_count,
+        },
+    }
 
     with session_scope() as session:
         obj = _touch_job(session, job_id)
         obj.gcode_path = str(gcode_path)
         obj.status = JobStatus.QUEUED.value
         obj.error_message = None
+        obj.metadata_json = metadata
 
     return get_job(job_id, admin=True)
 
