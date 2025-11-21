@@ -13,13 +13,14 @@ class GeminiClientError(RuntimeError):
     """Raised when Gemini API interaction fails."""
 
 
+# Strict prompt tuned for single-pen plotting—keep wording tight so future edits retain the guarantee.
 BASE_PROMPT = (
-    "Create a bold black-and-white caricature of the person in the provided photo. "
-    "Exaggerate the subject's most recognizable traits in a playful, slightly embarrassing way, similar to a live caricature artist. "
-    "Render everything as one confident, continuous outline using thick, smooth black lines on a white background so it stays pen-plotter friendly. "
-    "Avoid shading, hatching, or fills—simplify shapes but allow oversized, humorous proportions. "
-    "Incorporate any additional style instructions as tangible props, costume upgrades, or thematic body mods instead of just changing line quality. "
-    "Return only the final outline image with no text, captions, or borders."
+    "Create a bold caricature of the provided person that can be plotted with ONE black pen on white paper. "
+    "Use only solid #000 lines on pure white—absolutely no color, grayscale, shading, gradients, halftones, hatching, fills, or background washes. "
+    "If any tone other than full black linework would appear, regenerate the drawing to keep it 100% monochrome. "
+    "Exaggerate recognizable features in a playful live-caricature style while staying a single confident continuous outline with thick smooth strokes. "
+    "Incorporate additional style instructions only through props, costume details, or silhouette changes—never by altering stroke color or adding tone. "
+    "Return just the clean black outline image with no captions, borders, signatures, or extra marks."
 )
 
 

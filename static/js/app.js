@@ -13,6 +13,7 @@
   const captureSection = document.getElementById("capture-section");
   const layoutGrid = document.querySelector(".layout-grid");
   const emailInput = document.getElementById("email-input");
+  const captureMediaContainer = document.querySelector("#capture-section .media-container");
   const styleDescription = document.getElementById("style-description");
   const styleRadios = document.querySelectorAll('input[name="style"]');
 
@@ -36,6 +37,14 @@
   let capturedBlob;
   let currentJobId;
 
+  function updateCaptureAspectRatio() {
+    if (!captureMediaContainer || !video.videoWidth || !video.videoHeight) return;
+    captureMediaContainer.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+    captureMediaContainer.style.setProperty("--media-aspect", `${video.videoWidth} / ${video.videoHeight}`);
+  }
+
+  video?.addEventListener("loadedmetadata", updateCaptureAspectRatio);
+
   async function startCamera() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -44,6 +53,10 @@
       canvas.hidden = true;
       captureBtn.disabled = false;
       startBtn.hidden = true; // Hide start button once started
+      // Metadata may already be available once the stream starts playing
+      if (video.readyState >= 2) {
+        updateCaptureAspectRatio();
+      }
     } catch (err) {
       console.error("Error accessing camera:", err);
       alert("Unable to access the camera. Please ensure you have granted permission.");
@@ -58,6 +71,7 @@
     canvas.width = width;
     canvas.height = height;
     ctx.drawImage(video, 0, 0, width, height);
+    updateCaptureAspectRatio();
     
     video.hidden = true;
     canvas.hidden = false;

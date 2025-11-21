@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Dict
 
+# Shared preset instructions—mirror the Gemini base prompt to keep outputs plotter-safe.
 BASE_PROMPT = (
-    "Use thick, confident single-line outlines with clean contours and no shading so the art stays "
-    "pen-plotter friendly. "
-    "Push the drawing into a comedic caricature: exaggerate signature traits, lean into flaws, and keep it a single, "
-    "continuous stroke. When a style calls out a theme, add obvious costume pieces, props, or body mods—not just line tweaks."
+    "Use only bold #000 ink lines on a pure white background so the drawing can be plotted with one pen. "
+    "Never introduce shading, gradients, halftones, gray pixels, hatching, or fills; if tone would appear, rework the idea as solid contour lines. "
+    "Keep everything as a single confident continuous outline with exaggerated caricature proportions, and express styles through props or silhouette changes instead of color."
 )
 
 STYLE_PRESETS: Dict[str, Dict[str, str]] = {
