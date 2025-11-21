@@ -109,12 +109,6 @@
     if (!capturedBlob) return;
 
     const emailValue = emailInput?.value.trim();
-    if (emailValue && !emailValue.includes("@")) {
-      alert("Please enter a valid email address or leave the field blank.");
-      emailInput?.focus();
-      return;
-    }
-
     submitBtn.disabled = true;
     submitBtn.textContent = "Generating...";
 

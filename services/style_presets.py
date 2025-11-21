@@ -9,7 +9,7 @@ BASE_PROMPT = (
     "Use only bold #000 ink lines on a pure white background so the drawing can be plotted with one pen. "
     "Never introduce shading, gradients, halftones, gray pixels, hatching, or fills; if tone would appear, rework the idea as solid contour lines. "
     "Keep everything as a single confident continuous outline with exaggerated caricature proportions, and express styles through props or silhouette changes instead of color. "
-    "If using text, make sure it is big, bold and with thick lines."
+    "If using text anywhere, render only oversized block lettering with extremely bold, thick contour lines so the SVG converter reliably captures it."
 )
 
 STYLE_PRESETS: Dict[str, Dict[str, str]] = {

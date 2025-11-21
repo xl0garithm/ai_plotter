@@ -11,7 +11,7 @@ class Config:
 
     BASE_DIR = Path(__file__).resolve().parent
     STORAGE_DIR = BASE_DIR / "storage"
-    UPLOAD_DIR = BASE_DIR / "uploads"
+    UPLOAD_DIR = STORAGE_DIR / "uploads"
     GENERATED_DIR = STORAGE_DIR / "processed"
     GCODE_DIR = STORAGE_DIR / "gcode"
     DB_PATH = STORAGE_DIR / "app.db"

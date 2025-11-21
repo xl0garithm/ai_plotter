@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+import re
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from flask import current_app
@@ -49,6 +50,9 @@ class QueueConfig:
     gcode_dir: Path
 
 
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1F\x7F]")
+
+
 def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
     if isinstance(config, dict):
         upload_dir = Path(config["UPLOAD_DIR"])
@@ -59,6 +63,17 @@ def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
         generated_dir = Path(config.GENERATED_DIR)
         gcode_dir = Path(config.GCODE_DIR)
     return QueueConfig(upload_dir=upload_dir, generated_dir=generated_dir, gcode_dir=gcode_dir)
+
+
+def _sanitize_contact_field(value: Optional[str]) -> Optional[str]:
+    """Strip control characters and trim length for stored contact fields."""
+    if not value:
+        return None
+    cleaned = _CONTROL_CHAR_PATTERN.sub("", value)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    return cleaned[:255]
 
 
 def _config_value(config: Union[Config, Dict[str, Any]], name: str, default: Any) -> Any:
@@ -220,9 +235,7 @@ def create_job_from_upload(
     if upload is None or upload.filename == "":
         raise QueueError("No image provided.")
 
-    normalized_email = (email or "").strip() or None
-    if normalized_email and "@" not in normalized_email:
-        raise QueueError("A valid email address is required.")
+    normalized_email = _sanitize_contact_field(email)
 
     style_key = (style_key or DEFAULT_STYLE_KEY).strip().lower()
     style = get_style(style_key)

@@ -63,9 +63,6 @@ def submit_job() -> Response:
     email = (request.form.get("email") or "").strip() or None
     requester = request.form.get("requester") or request.remote_addr
 
-    if email and "@" not in email:
-        return jsonify({"error": "Please provide a valid email address."}), 400
-
     style = get_style(style_key)
     try:
         job = create_job_from_upload(
