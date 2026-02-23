@@ -47,6 +47,13 @@ class Config:
     # Plotting behavior
     PLOTTER_FEED_RATE = int(os.environ.get("PLOTTER_FEED_RATE", "5000"))
 
+    # Chess robot
+    CHESS_BOARD_SIZE_MM = float(os.environ.get("CHESS_BOARD_SIZE_MM", "200.0"))
+    CHESS_SQUARE_COUNT = int(os.environ.get("CHESS_SQUARE_COUNT", "8"))
+    CHESS_ORIGIN_X_MM = float(os.environ.get("CHESS_ORIGIN_X_MM", "0.0"))
+    CHESS_ORIGIN_Y_MM = float(os.environ.get("CHESS_ORIGIN_Y_MM", "0.0"))
+    CHESS_TAP_DWELL_S = float(os.environ.get("CHESS_TAP_DWELL_S", "0.3"))
+
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads
     ENABLE_MANUAL_UPLOAD = os.environ.get("ENABLE_MANUAL_UPLOAD", "false").strip().lower() in {"1", "true", "yes", "on"}
