@@ -39,4 +39,3 @@ def session_scope() -> Generator:
         raise
     finally:
         session.close()
-

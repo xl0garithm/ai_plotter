@@ -1,58 +1,48 @@
-# AI Caricature Plotter
+# Chess Plotter
 
-Python/Flask web application for capturing webcam images, generating AI caricatures via Gemini, and plotting them on an XY robot over USB serial.
+FastAPI app for playing chess (human vs human, human vs computer, computer vs computer) and driving an XY plotter over USB serial. Chess runs fully offline (Stockfish + python-chess). The play UI uses [chess.js](https://github.com/jhlywa/chess.js) for client-side move validation and FEN sync; backend engine and state remain python-chess + Stockfish.
 
 ## Features
-- Browser UI with webcam preview, capture, retake, and submission flow.
-- Gemini REST integration for caricature generation with manual confirmation step.
-- Persistent job queue with admin dashboard for approval, cancellation, and print control.
-- High-resolution (1600×1600) vectorization pipeline that preserves the Gemini outline and outputs SVG previews.
-- USB serial plotter driver that streams generated G-code to the robot.
+
+- Chess play at `/chess`: three modes, difficulty (Easy/Medium/Hard/Strongest via Stockfish Skill Level), UCI moves, optional execute-on-plotter.
+- Admin queue at `/admin`: manual upload of outline images, approve, print to plotter.
+- Vectorization and G-code pipeline for the plotter; USB serial driver.
 
 ## Prerequisites
+
 - Python 3.10+
-- Gemini API key (`GEMINI_API_KEY`)
-- USB serial access to the plotter (e.g., `/dev/ttyUSB0`, `COM3`)
-- Webcam accessible via browser (Chrome recommended)
+- Serial port for plotter (e.g. `/dev/ttyUSB0`, `COM3`)
+- Stockfish binary (on `PATH` or set `STOCKFISH_PATH`)
 
 ## Setup
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate            # or .venv\Scripts\activate on Windows
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Copy `env.example` to `.env` (or export these variables manually):
+Copy `env.example` to `.env`. Main variables:
 
-| Variable | Description |
-| -------- | ----------- |
-| `FLASK_SECRET_KEY` | Flask session secret |
-| `GEMINI_API_KEY` | Gemini REST API key |
-| `GEMINI_MODEL` | Gemini model name (default `gemini-2.0-flash-preview-image`, must support image output) |
-| `PLOTTER_SERIAL_PORT` | Serial port for the plotter (`/dev/ttyUSB0`, `COM3`, etc.) |
-| `PLOTTER_BAUDRATE` | Baud rate for the plotter (default `115200`) |
-| `PLOTTER_SERIAL_TIMEOUT` | Serial read timeout seconds (default `2.0`) |
-| `PLOTTER_DRY_RUN` | When `true`, skip serial output and dump G-code to `.dryrun.txt` |
-| `PLOTTER_INVERT_Z` | Set `true` if your plotter lowers the pen with higher Z values |
-| `PLOTTER_LINE_DELAY` | Extra seconds to wait between each streamed G-code line |
-| `PLOTTER_VECTOR_RESOLUTION` | Square resolution (px) used before vectorization (default `1600`) |
-| `PLOTTER_VECTORIZE_THRESHOLD` | 0-255 grayscale cutoff for strokes (default `240`) |
-| `PLOTTER_VECTORIZE_SIMPLIFY_PX` | RDP simplification tolerance in pixels (default `2.0`) |
-| `PLOTTER_VECTORIZE_MIN_POINTS` | Minimum contour points to keep a path (default `24`) |
-| `PLOTTER_VECTORIZE_DOWNSAMPLE_STEP` | Keep every _n_th contour point before simplifying (default `1`) |
-| `PLOTTER_VECTORIZE_STROKE_WIDTH` | Preview SVG stroke width in px (default `3.0`) |
-| `PLOTTER_VECTORIZE_CROP_PADDING_RATIO` | Fractional padding kept around cropped vectors (default `0.05`) |
+- `FLASK_SECRET_KEY` – session secret
+- `PLOTTER_SERIAL_PORT` – plotter serial port
+- `PLOTTER_BAUDRATE` – default `115200`
+- `PLOTTER_DRY_RUN` – if `true`, no serial output; G-code written to `.dryrun.txt`
+- `STOCKFISH_PATH` – optional path to Stockfish binary
 
-## Running
+## Run
+
 ```bash
-export FLASK_APP=app.py
-flask run
+uvicorn main:app --reload --host 0.0.0.0 --port 5000
+# or: python app.py
 ```
 
-Open `http://localhost:5000/` for the capture UI and `http://localhost:5000/admin/` for admin tools.
+- `http://localhost:5000/` – home (links to Play Chess and Admin)
+- `http://localhost:5000/chess` – chess play
+- `http://localhost:5000/admin/` – queue and print control
 
 ## Tests
+
 ```bash
 pytest
 ```
-

@@ -70,12 +70,3 @@ DEFAULT_STYLE_KEY = "nerdy"
 def get_style(style_key: str) -> Dict[str, str]:
     """Return the preset; fallback to default if missing."""
     return STYLE_PRESETS.get(style_key, STYLE_PRESETS[DEFAULT_STYLE_KEY])
-
-
-def get_ui_style_map() -> Dict[str, Dict[str, str]]:
-    """Return a sanitized version (no prompts) for frontend display."""
-    return {
-        key: {"label": value["label"], "description": value["description"]}
-        for key, value in STYLE_PRESETS.items()
-    }
-

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import List, Sequence, Tuple
+from typing import List, Tuple
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -76,7 +76,6 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
     if not skeleton.any():
         raise GCodeError("Unable to derive skeleton from outline.")
 
-
     height, width = skeleton.shape
     pixel = settings.pixel_size_mm
 
@@ -89,18 +88,18 @@ def image_to_gcode(image_path: Path, output_path: Path, settings: GCodeSettings 
 
     for path in paths:
         mm_points = _pixels_to_mm(path, height, pixel)
-        
+
         # 1. Simplify jagged pixel path into vectors (RDP)
         if settings.simplification_error > 0:
             mm_points = _simplify_path_rdp(mm_points, settings.simplification_error)
-            
+
         # 2. Smooth the sharp corners (Chaikin)
         if settings.smoothing_iterations > 0:
             mm_points = _smooth_path_chaikin(mm_points, settings.smoothing_iterations)
-            
+
         # 3. Filter tiny leftover segments
         mm_points = _filter_min_move(mm_points, settings.min_move_mm)
-        
+
         if len(mm_points) < 2:
             continue
 
@@ -364,18 +363,18 @@ def _simplify_path_rdp(points: List[Tuple[float, float]], epsilon: float) -> Lis
     dmax = 0.0
     index = 0
     end = len(points) - 1
-    
+
     # Line defined by points[0] and points[end]
     x1, y1 = points[0]
     x2, y2 = points[end]
-    
+
     # Precompute line vector
     dx = x2 - x1
     dy = y2 - y1
-    
+
     # Normalize if length > 0
     line_len_sq = dx*dx + dy*dy
-    
+
     if line_len_sq == 0:
         # Start and end are same, dist is dist to point
         for i in range(1, end):
@@ -416,17 +415,17 @@ def _smooth_path_chaikin(points: List[Tuple[float, float]], iterations: int = 1)
         for i in range(len(current_points) - 1):
             p0 = current_points[i]
             p1 = current_points[i+1]
-            
+
             # Cut at 25% and 75%
             q = (0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1])
             r = (0.25 * p0[0] + 0.75 * p1[0], 0.25 * p0[1] + 0.75 * p1[1])
-            
+
             new_points.append(q)
             new_points.append(r)
-        
+
         new_points.append(current_points[-1])
         current_points = new_points
-        
+
     return current_points
 
 
@@ -465,4 +464,3 @@ def _filter_min_move(points: List[Tuple[float, float]], min_dist: float) -> List
     if filtered[-1] != points[-1]:
         filtered.append(points[-1])
     return filtered
-

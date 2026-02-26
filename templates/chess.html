@@ -1,54 +1,121 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chess Board - AI Plotter</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
-    <style>
-      .chess-preview {
-        max-width: 500px;
-        margin: 0 auto;
-        border: 1px solid #ccc;
-        background: #fff;
-      }
-      .chess-preview svg {
-        display: block;
-        width: 100%;
-        height: auto;
-      }
-      .status-box {
-        margin-top: 1rem;
-        padding: 0.75rem 1rem;
-        border-radius: 4px;
-      }
-      .status-box.success {
-        background: #d4edda;
-        color: #155724;
-      }
-      .status-box.error {
-        background: #f8d7da;
-        color: #721c24;
-      }
-      .status-box.loading {
-        background: #fff3cd;
-        color: #856404;
-      }
-    </style>
-  </head>
-  <body>
-    <main id="app">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chess Board - AI Plotter</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script type="module">
+    import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1/+esm';
+    window.Chess = Chess;
+    window.dispatchEvent(new Event('chessjs-ready'));
+  </script>
+  <style>
+    /* Force vertical scroll: wrapper is viewport height; main must not force min-height so content can overflow */
+    body.page-chess {
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    .chess-scroll-wrap {
+      height: 100vh !important;
+      max-height: 100vh !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    body.page-chess .chess-scroll-wrap main {
+      min-height: 0 !important;
+    }
+
+    .chess-preview {
+      max-width: 500px;
+      margin: 0 auto;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+
+    .chess-preview svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .status-box {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+    }
+
+    .status-box.success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-box.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status-box.loading {
+      background: #fff3cd;
+      color: #856404;
+    }
+  </style>
+</head>
+
+<body class="page-chess" style="overflow: hidden; margin: 0; padding: 0;">
+  <div class="chess-scroll-wrap"
+    style="height: 100vh; max-height: 100vh; overflow-y: scroll; overflow-x: hidden; display: block;">
+    <main id="app" style="min-height: 0;">
       <header class="hero">
         <h1>Chess Board</h1>
-        <p class="hero-subtitle">Preview and print a chess board pattern.</p>
+        <p class="hero-subtitle">Preview and print a chess board pattern. Play: human v human, human v computer, or
+          computer v computer.</p>
       </header>
+
+      <!-- Chess Play -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Play Chess</h2>
+        </div>
+        <p>
+          <label>Mode:</label>
+          <select id="play-mode">
+            <option value="human_v_human">Human v Human</option>
+            <option value="human_v_computer">Human v Computer</option>
+            <option value="computer_v_computer">Computer v Computer</option>
+          </select>
+          <label style="margin-left: 1rem;">Difficulty (engine):</label>
+          <select id="play-difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+            <option value="strongest">Strongest</option>
+          </select>
+          <button id="play-setup-btn">New game</button>
+        </p>
+        <p id="play-status">Turn: white. FEN: (loads on New game)</p>
+        <p>
+          <label>Move (UCI, e.g. e2e4):</label>
+          <input type="text" id="play-uci" size="6" placeholder="e2e4" />
+          <button id="play-move-btn">Move</button>
+          <button id="play-step-btn" style="display:none;">Step (engine)</button>
+          <label><input type="checkbox" id="play-execute" /> Execute on plotter</label>
+        </p>
+        <div id="play-message" class="status-box" hidden></div>
+      </section>
 
       <!-- Square Traversal Demo -->
       <section class="panel">
         <div class="panel-header">
           <h2>Square Traversal Demo</h2>
         </div>
-        <p>Moves the head to every square center in order (a8 &rarr; h8, a7 &rarr; h7, &hellip; a1 &rarr; h1), tapping down at each.</p>
+        <p>Moves the head to every square center in order (a8 &rarr; h8, a7 &rarr; h7, &hellip; a1 &rarr; h1), tapping
+          down at each.</p>
         <div class="chess-preview" id="demo-preview-container">
           <p>Loading demo preview...</p>
         </div>
@@ -73,92 +140,208 @@
         <div id="status" class="status-box" hidden></div>
       </section>
     </main>
+  </div>
 
-    <script>
-      function showStatus(el, message, type) {
-        el.textContent = message;
-        el.className = 'status-box ' + type;
-        el.hidden = false;
+  <script>
+    function showStatus(el, message, type) {
+      el.textContent = message;
+      el.className = 'status-box ' + type;
+      el.hidden = false;
+    }
+
+    // --- Demo section ---
+    const demoPreview = document.getElementById('demo-preview-container');
+    const demoRunBtn = document.getElementById('demo-run-btn');
+    const demoStatus = document.getElementById('demo-status');
+
+    fetch('/api/chess/demo/preview')
+      .then(res => res.text())
+      .then(svg => { demoPreview.innerHTML = svg; })
+      .catch(err => {
+        demoPreview.innerHTML = '<p>Failed to load demo preview.</p>';
+        console.error(err);
+      });
+
+    demoRunBtn.addEventListener('click', async () => {
+      demoRunBtn.disabled = true;
+      showStatus(demoStatus, 'Running traversal demo...', 'loading');
+
+      try {
+        const res = await fetch('/api/chess/demo/run', { method: 'POST' });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          const s = data.stats;
+          const msg = data.dry_run
+            ? `Dry run complete. ${s.total_squares} squares, ~${s.estimated_seconds}s estimated.`
+            : `Demo complete! ${s.total_squares} squares visited.`;
+          showStatus(demoStatus, msg, 'success');
+        } else {
+          showStatus(demoStatus, data.error || 'Demo failed.', 'error');
+        }
+      } catch (err) {
+        showStatus(demoStatus, 'Network error.', 'error');
+        console.error(err);
+      } finally {
+        demoRunBtn.disabled = false;
       }
+    });
 
-      // --- Demo section ---
-      const demoPreview = document.getElementById('demo-preview-container');
-      const demoRunBtn = document.getElementById('demo-run-btn');
-      const demoStatus = document.getElementById('demo-status');
+    // --- Board print section ---
+    const previewContainer = document.getElementById('preview-container');
+    const printBtn = document.getElementById('print-btn');
+    const statusEl = document.getElementById('status');
 
-      fetch('/api/chess/demo/preview')
-        .then(res => res.text())
-        .then(svg => { demoPreview.innerHTML = svg; })
-        .catch(err => {
-          demoPreview.innerHTML = '<p>Failed to load demo preview.</p>';
-          console.error(err);
-        });
-
-      demoRunBtn.addEventListener('click', async () => {
-        demoRunBtn.disabled = true;
-        showStatus(demoStatus, 'Running traversal demo...', 'loading');
-
-        try {
-          const res = await fetch('/api/chess/demo/run', { method: 'POST' });
-          const data = await res.json();
-
-          if (res.ok && data.success) {
-            const s = data.stats;
-            const msg = data.dry_run
-              ? `Dry run complete. ${s.total_squares} squares, ~${s.estimated_seconds}s estimated.`
-              : `Demo complete! ${s.total_squares} squares visited.`;
-            showStatus(demoStatus, msg, 'success');
-          } else {
-            showStatus(demoStatus, data.error || 'Demo failed.', 'error');
-          }
-        } catch (err) {
-          showStatus(demoStatus, 'Network error.', 'error');
-          console.error(err);
-        } finally {
-          demoRunBtn.disabled = false;
-        }
+    fetch('/api/chess/preview')
+      .then(res => res.text())
+      .then(svg => { previewContainer.innerHTML = svg; })
+      .catch(err => {
+        previewContainer.innerHTML = '<p>Failed to load preview.</p>';
+        console.error(err);
       });
 
-      // --- Board print section ---
-      const previewContainer = document.getElementById('preview-container');
-      const printBtn = document.getElementById('print-btn');
-      const statusEl = document.getElementById('status');
+    // --- Chess play (uses chess.js for client-side validation and FEN sync) ---
+    const playMode = document.getElementById('play-mode');
+    const playDifficulty = document.getElementById('play-difficulty');
+    const playSetupBtn = document.getElementById('play-setup-btn');
+    const playStatus = document.getElementById('play-status');
+    const playUci = document.getElementById('play-uci');
+    const playMoveBtn = document.getElementById('play-move-btn');
+    const playStepBtn = document.getElementById('play-step-btn');
+    const playExecute = document.getElementById('play-execute');
+    const playMessage = document.getElementById('play-message');
 
-      fetch('/api/chess/preview')
-        .then(res => res.text())
-        .then(svg => { previewContainer.innerHTML = svg; })
-        .catch(err => {
-          previewContainer.innerHTML = '<p>Failed to load preview.</p>';
-          console.error(err);
+    let clientChess = null;
+
+    function showPlayStatus(data) {
+      const t = data.game_over ? `Game over: ${data.result}` : `Turn: ${data.turn}`;
+      const diff = (data.mode !== 'human_v_human' && data.difficulty) ? ` · Difficulty: ${data.difficulty}` : '';
+      playStatus.textContent = t + diff + '. FEN: ' + (data.fen || '').slice(0, 50) + '...';
+      playStepBtn.style.display = data.mode === 'computer_v_computer' ? 'inline-block' : 'none';
+      if (data.difficulty && playDifficulty) playDifficulty.value = data.difficulty;
+      if (window.Chess && data.fen) {
+        try { clientChess = new window.Chess(data.fen); } catch (e) { clientChess = new window.Chess(); }
+      }
+    }
+
+    window.addEventListener('chessjs-ready', () => {
+      clientChess = new window.Chess();
+      fetch('/api/chess/play/status').then(r => r.json()).then(showPlayStatus).catch(() => { });
+    });
+
+    playSetupBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/chess/play/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: playMode.value, difficulty: playDifficulty?.value || 'medium' }),
         });
+        const data = await res.json();
+        if (res.ok) {
+          showPlayStatus({ ...data, turn: 'white', game_over: false, result: '*' });
+          if (window.Chess) clientChess = new window.Chess();
+        } else showStatus(playMessage, data.error || 'Setup failed', 'error');
+      } catch (e) {
+        showStatus(playMessage, 'Network error', 'error');
+      }
+    });
 
-      printBtn.addEventListener('click', async () => {
-        printBtn.disabled = true;
-        showStatus(statusEl, 'Sending to plotter...', 'loading');
+    function setPlayControlsDisabled(disabled) {
+      playMoveBtn.disabled = disabled;
+      playStepBtn.disabled = disabled;
+      playSetupBtn.disabled = disabled;
+      playUci.disabled = disabled;
+    }
 
-        try {
-          const res = await fetch('/api/chess/print', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-          });
-          const data = await res.json();
-
-          if (res.ok && data.success) {
-            const msg = data.dry_run
-              ? 'Dry run complete (no plotter connected).'
-              : 'Print complete!';
-            showStatus(statusEl, msg, 'success');
-          } else {
-            showStatus(statusEl, data.error || 'Print failed.', 'error');
-          }
-        } catch (err) {
-          showStatus(statusEl, 'Network error.', 'error');
-          console.error(err);
-        } finally {
-          printBtn.disabled = false;
+    playMoveBtn.addEventListener('click', async () => {
+      const uci = playUci.value.trim();
+      if (!uci) return;
+      if (window.Chess && clientChess) {
+        const move = clientChess.move(uci);
+        if (!move) {
+          showStatus(playMessage, 'Invalid move (chess.js). Try e.g. e2e4, e7e5.', 'error');
+          return;
         }
-      });
-    </script>
-  </body>
+      }
+      const executing = playExecute.checked;
+      setPlayControlsDisabled(true);
+      showStatus(playMessage, executing ? 'Moving piece on board… wait for plotter to finish.' : 'Applying move...', 'loading');
+      try {
+        const res = await fetch('/api/chess/play/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uci, execute: playExecute.checked }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showPlayStatus(data);
+          showStatus(playMessage, 'Moves: ' + (data.moves || []).join(' '), 'success');
+        } else {
+          showStatus(playMessage, data.error || 'Move failed', 'error');
+          fetch('/api/chess/play/status').then(r => r.json()).then(showPlayStatus).catch(() => { });
+        }
+      } catch (e) {
+        showStatus(playMessage, 'Network error', 'error');
+        fetch('/api/chess/play/status').then(r => r.json()).then(showPlayStatus).catch(() => { });
+      } finally {
+        setPlayControlsDisabled(false);
+      }
+    });
+
+    playStepBtn.addEventListener('click', async () => {
+      const executing = playExecute.checked;
+      setPlayControlsDisabled(true);
+      showStatus(playMessage, executing ? 'Engine + moving piece on board… wait for plotter.' : 'Engine thinking...', 'loading');
+      try {
+        const res = await fetch('/api/chess/play/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: true, execute: playExecute.checked }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showPlayStatus(data);
+          showStatus(playMessage, 'Moves: ' + (data.moves || []).join(' '), 'success');
+        } else {
+          showStatus(playMessage, data.error || 'Step failed', 'error');
+        }
+      } catch (e) {
+        showStatus(playMessage, 'Network error', 'error');
+      } finally {
+        setPlayControlsDisabled(false);
+      }
+    });
+
+    fetch('/api/chess/play/status').then(r => r.json()).then(showPlayStatus).catch(() => { });
+
+    printBtn.addEventListener('click', async () => {
+      printBtn.disabled = true;
+      showStatus(statusEl, 'Sending to plotter...', 'loading');
+
+      try {
+        const res = await fetch('/api/chess/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          const msg = data.dry_run
+            ? 'Dry run complete (no plotter connected).'
+            : 'Print complete!';
+          showStatus(statusEl, msg, 'success');
+        } else {
+          showStatus(statusEl, data.error || 'Print failed.', 'error');
+        }
+      } catch (err) {
+        showStatus(statusEl, 'Network error.', 'error');
+        console.error(err);
+      } finally {
+        printBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+
 </html>

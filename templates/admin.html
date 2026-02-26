@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Admin Portal - AI Plotter</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <link rel="stylesheet" href="/static/css/styles.css" />
   </head>
   <body>
     <main id="admin-app">
       <div class="flex-between" style="margin-bottom: 2rem;">
         <h1>Admin Portal</h1>
-        <a href="{{ url_for('admin.logout') }}" class="button secondary" style="text-decoration: none; padding: 0.75rem 1.5rem; background: var(--secondary-color); color: #fff; border-radius: var(--radius);">Logout</a>
+        <a href="/admin/logout" class="button secondary" style="text-decoration: none; padding: 0.75rem 1.5rem; background: var(--secondary-color); color: #fff; border-radius: var(--radius);">Logout</a>
       </div>
 
       {% if enable_manual_upload %}
@@ -68,6 +68,6 @@
         </p>
       </div>
     </div>
-    <script src="{{ url_for('static', filename='js/admin.js') }}" defer></script>
+    <script src="/static/js/admin.js" defer></script>
   </body>
 </html>

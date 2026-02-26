@@ -46,4 +46,3 @@ def sample_upload():
         )
 
     return factory
-

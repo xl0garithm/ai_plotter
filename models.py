@@ -73,4 +73,3 @@ class Job(Base):
             data["asset_filename"] = asset_filename
 
         return data
-

@@ -18,9 +18,6 @@ class Config:
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "change-this-secret")
     ADMIN_PIN = os.environ.get("ADMIN_PIN", "1234")
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-preview-image")
-
     # Database
     DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
@@ -53,6 +50,7 @@ class Config:
     CHESS_ORIGIN_X_MM = float(os.environ.get("CHESS_ORIGIN_X_MM", "0.0"))
     CHESS_ORIGIN_Y_MM = float(os.environ.get("CHESS_ORIGIN_Y_MM", "0.0"))
     CHESS_TAP_DWELL_S = float(os.environ.get("CHESS_TAP_DWELL_S", "0.3"))
+    CHESS_MAGNET_SETTLE_S = float(os.environ.get("CHESS_MAGNET_SETTLE_S", "0.5"))
 
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads

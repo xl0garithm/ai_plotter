@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
@@ -190,4 +190,3 @@ def save_svg(data: VectorData, output_path: Path, *, stroke_px: float = 3.0) -> 
     svg_lines.append("</svg>")
     output_path.write_text("\n".join(svg_lines), encoding="utf-8")
     return output_path
-

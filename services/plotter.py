@@ -7,6 +7,7 @@ from typing import Callable, Iterable, Optional
 
 import serial
 
+
 # ----- Exceptions -----
 class PlotterError(RuntimeError):
     """Raised when plotter communication fails."""

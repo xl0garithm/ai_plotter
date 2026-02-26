@@ -151,6 +151,59 @@ def _clip_diagonal_to_square(
     return []
 
 
+def uci_square_to_mm(
+    file_char: str,
+    rank_char: str,
+    board_size_mm: float,
+    square_count: int,
+    origin_x: float,
+    origin_y: float,
+) -> tuple[float, float]:
+    """Map UCI file/rank (e.g. e, 2) to square center in mm. Origin top-left; rank 8 at top."""
+    square_size = board_size_mm / square_count
+    file_idx = ord(file_char.lower()) - ord("a")
+    rank = int(rank_char)
+    x = origin_x + (file_idx + 0.5) * square_size
+    y = origin_y + (8.5 - rank) * square_size
+    return (x, y)
+
+
+def move_to_gcode(
+    uci_move: str,
+    capture: bool,
+    board_size_mm: float = 200.0,
+    square_count: int = 8,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    dwell_s: float = 0.3,
+    settle_after_place_s: float = 0.5,
+) -> list[str]:
+    """Convert one UCI move to G-code for electromagnet arm: go to from, magnet on, dwell, go to to, magnet off, settle. If capture, first move captured piece to discard. Pieces assumed same height so lifted piece clears board."""
+    square_size = board_size_mm / square_count
+    discard_x = origin_x - square_size * 1.5
+    discard_y = origin_y - square_size * 1.5
+    lines: list[str] = []
+    lines.append("M5 ; electromagnet off")
+    from_sq = uci_move[:2]
+    to_sq = uci_move[2:4]
+    fx, fy = uci_square_to_mm(from_sq[0], from_sq[1], board_size_mm, square_count, origin_x, origin_y)
+    tx, ty = uci_square_to_mm(to_sq[0], to_sq[1], board_size_mm, square_count, origin_x, origin_y)
+    if capture:
+        lines.append(f"G0 X{tx:.2f} Y{ty:.2f} ; to capture square")
+        lines.append("M3 S90 ; electromagnet on")
+        lines.append(f"G4 P{dwell_s:.2f} ; pickup dwell")
+        lines.append(f"G0 X{discard_x:.2f} Y{discard_y:.2f} ; to discard")
+        lines.append("M5 ; electromagnet off")
+        lines.append(f"G4 P{settle_after_place_s:.2f} ; settle after place")
+    lines.append(f"G0 X{fx:.2f} Y{fy:.2f} ; from {from_sq}")
+    lines.append("M3 S90 ; electromagnet on")
+    lines.append(f"G4 P{dwell_s:.2f} ; pickup dwell")
+    lines.append(f"G0 X{tx:.2f} Y{ty:.2f} ; to {to_sq}")
+    lines.append("M5 ; electromagnet off")
+    lines.append(f"G4 P{settle_after_place_s:.2f} ; settle after place")
+    return lines
+
+
 def generate_chess_demo_gcode(
     board_size_mm: float = 200.0,
     square_count: int = 8,

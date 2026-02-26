@@ -1,13 +1,6 @@
 from pathlib import Path
 
-import pytest
-
 from services import queue
-
-
-class StubGemini:
-    def generate_caricature(self, image_bytes: bytes, prompt=None) -> bytes:
-        return image_bytes
 
 
 def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
@@ -22,12 +15,10 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
         "PLOTTER_INVERT_Z": False,
     }
 
-    job = queue.create_job_from_upload(
+    job = queue.create_job_from_manual_upload(
         upload,
-        prompt=None,
         requester="tester",
         config=config,
-        gemini_client=StubGemini(),
     )
 
     assert job["status"] == queue.JobStatus.GENERATED.value
@@ -86,12 +77,10 @@ def test_start_print_job_dry_run(test_storage, sample_upload):
         "PLOTTER_INVERT_Z": False,
     }
 
-    job = queue.create_job_from_upload(
+    job = queue.create_job_from_manual_upload(
         upload,
-        prompt="Dry run test",
         requester="tester",
         config=config,
-        gemini_client=StubGemini(),
     )
     result = queue.start_print_job(job["id"], config)
 
@@ -117,12 +106,10 @@ def test_print_job_rehomes_when_flagged(monkeypatch, test_storage, sample_upload
         "PLOTTER_INVERT_Z": False,
     }
 
-    job = queue.create_job_from_upload(
+    job = queue.create_job_from_manual_upload(
         upload,
-        prompt="Rehome test",
         requester="tester",
         config=config,
-        gemini_client=StubGemini(),
     )
     queue.confirm_job(job["id"])
 
@@ -158,54 +145,3 @@ def test_print_job_rehomes_when_flagged(monkeypatch, test_storage, sample_upload
     assert RehomePlotter.instances, "Plotter should be instantiated"
     assert RehomePlotter.instances[-1].rehome_called is True
     assert queue._plotter_state.should_rehome_on_cancel is False
-
-
-def test_accepts_arbitrary_contact_text(test_storage, sample_upload):
-    upload = sample_upload()
-    config = {
-        "UPLOAD_DIR": test_storage["UPLOAD_DIR"],
-        "GENERATED_DIR": test_storage["GENERATED_DIR"],
-        "GCODE_DIR": test_storage["GCODE_DIR"],
-        "SERIAL_PORT": test_storage["SERIAL_PORT"],
-        "SERIAL_BAUDRATE": test_storage["SERIAL_BAUDRATE"],
-        "PLOTTER_DRY_RUN": False,
-        "PLOTTER_INVERT_Z": False,
-    }
-
-    freestyle = "Ping me on Threads @plotfan"
-    job = queue.create_job_from_upload(
-        upload,
-        prompt=None,
-        requester="tester",
-        email=freestyle,
-        config=config,
-        gemini_client=StubGemini(),
-    )
-
-    admin_job = queue.get_job(job["id"], admin=True)
-    assert admin_job["email"] == freestyle
-
-
-def test_sanitizes_control_characters_in_email(test_storage, sample_upload):
-    upload = sample_upload()
-    config = {
-        "UPLOAD_DIR": test_storage["UPLOAD_DIR"],
-        "GENERATED_DIR": test_storage["GENERATED_DIR"],
-        "GCODE_DIR": test_storage["GCODE_DIR"],
-        "SERIAL_PORT": test_storage["SERIAL_PORT"],
-        "SERIAL_BAUDRATE": test_storage["SERIAL_BAUDRATE"],
-        "PLOTTER_DRY_RUN": False,
-        "PLOTTER_INVERT_Z": False,
-    }
-
-    noisy = "  alert\x00('hi')\n "
-    job = queue.create_job_from_upload(
-        upload,
-        prompt=None,
-        requester="tester",
-        email=noisy,
-        config=config,
-        gemini_client=StubGemini(),
-    )
-    stored_email = queue.get_job(job["id"], admin=True)["email"]
-    assert stored_email == "alert('hi')"

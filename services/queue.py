@@ -11,13 +11,11 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Iterable, List, Optional, Union
 
-from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from config import Config
 from models import Job
 from services.database import session_scope
-from services.gemini_client import GeminiClient, GeminiClientError
 from services import gcode as gcode_service
 from services import image_processing, vectorizer
 from services.style_presets import DEFAULT_STYLE_KEY, get_style
@@ -83,10 +81,7 @@ def _config_value(config: Union[Config, Dict[str, Any]], name: str, default: Any
 
 
 def _logger():
-    try:
-        return current_app.logger
-    except RuntimeError:
-        return logging.getLogger("services.queue")
+    return logging.getLogger("services.queue")
 
 
 def _temporary_asset_key() -> str:
@@ -220,78 +215,22 @@ def _job_to_admin_dict(job: Job) -> Dict[str, Any]:
     return job.to_dict(admin=True)
 
 
-def create_job_from_upload(
-    upload: FileStorage,
-    *,
-    prompt: Optional[str],
-    requester: Optional[str],
-    email: Optional[str] = None,
-    style_key: str = DEFAULT_STYLE_KEY,
-    style_prompt: Optional[str] = None,
-    config: Config,
-    gemini_client: GeminiClient,
-) -> Dict[str, Any]:
-    """Create a new job from an uploaded image and trigger generation."""
-    if upload is None or upload.filename == "":
-        raise QueueError("No image provided.")
-
-    normalized_email = _sanitize_contact_field(email)
-
-    style_key = (style_key or DEFAULT_STYLE_KEY).strip().lower()
-    style = get_style(style_key)
-    resolved_style_prompt = style_prompt or style["prompt"]
-
-    cfg = _get_queue_config(config)
-    metadata = {
-        "style_key": style_key,
-        "style_label": style["label"],
-        "style_description": style["description"],
-        "style_prompt": resolved_style_prompt,
-    }
-    placeholder_key = _temporary_asset_key()
-
-    with session_scope() as session:
-        job = Job(
-            asset_key=placeholder_key,
-            status=JobStatus.SUBMITTED.value,
-            requester=requester,
-            email=normalized_email,
-            prompt=prompt,
-            original_path="",
-            metadata_json=metadata,
-        )
-        session.add(job)
-        session.flush()
-        job_id = job.id
-        asset_key = image_processing.generate_asset_key(job_id)
-        original_path = cfg.upload_dir / f"{asset_key}.png"
-        image_processing.save_upload(upload, original_path)
-        job.asset_key = asset_key
-        job.original_path = str(original_path)
-
-    try:
-        _generate_caricature(job_id, gemini_client, cfg, config)
-    except GeminiClientError as exc:
-        _logger().exception("Gemini generation failed for job %s: %s", job_id, exc)
-        mark_job_failed(job_id, str(exc))
-        raise
-    except Exception as exc:  # noqa: BLE001
-        _logger().exception("Job generation failed for job %s: %s", job_id, exc)
-        mark_job_failed(job_id, str(exc))
-        raise
-
-    return get_job(job_id, admin=False)
-
-
 def create_job_from_manual_upload(
-    upload: FileStorage,
+    upload: Union[FileStorage, tuple],
     *,
     requester: Optional[str],
     config: Config,
 ) -> Dict[str, Any]:
-    """Create a job directly from an uploaded outline image."""
-    if upload is None or upload.filename == "":
+    """Create a job directly from an uploaded outline image. upload is FileStorage or (bytes, filename)."""
+    if upload is None:
         raise QueueError("No image provided.")
+    if isinstance(upload, tuple):
+        content, filename = upload
+        if not content or not filename:
+            raise QueueError("No image provided.")
+    else:
+        if upload.filename == "":
+            raise QueueError("No image provided.")
 
     cfg = _get_queue_config(config)
     style = get_style(DEFAULT_STYLE_KEY)
@@ -314,7 +253,12 @@ def create_job_from_manual_upload(
         asset_key = image_processing.generate_asset_key(job_id)
         original_path = cfg.upload_dir / f"{asset_key}.png"
         generated_path = cfg.generated_dir / f"{asset_key}.png"
-        image_processing.save_upload(upload, original_path)
+        if isinstance(upload, tuple):
+            content, _ = upload
+            original_path.parent.mkdir(parents=True, exist_ok=True)
+            original_path.write_bytes(content)
+        else:
+            image_processing.save_upload(upload, original_path)
         resized = image_processing.resize_image_bytes(original_path.read_bytes(), (resolution, resolution))
         image_processing.save_image_bytes(resized, generated_path)
         vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
@@ -331,48 +275,6 @@ def create_job_from_manual_upload(
         job.metadata_json = metadata
 
     return get_job(job_id, admin=True)
-
-
-def _generate_caricature(
-    job_id: int,
-    gemini_client: GeminiClient,
-    cfg: QueueConfig,
-    config: Config,
-) -> None:
-    """Invoke Gemini to generate a caricature for the job."""
-    set_job_status(job_id, JobStatus.GENERATING)
-
-    with session_scope() as session:
-        job = _touch_job(session, job_id)
-        original_path = Path(job.original_path)
-        asset_key = job.asset_key
-        if not original_path.exists():
-            raise QueueError("Original image not found on disk.")
-        image_bytes = original_path.read_bytes()
-        metadata = job.metadata_json or {}
-        style_prompt = metadata.get("style_prompt", "")
-        custom_prompt = (job.prompt or "").strip()
-
-    prompt_parts = []
-    if style_prompt:
-        prompt_parts.append(style_prompt)
-    if custom_prompt:
-        prompt_parts.append(custom_prompt)
-    effective_prompt = " ".join(prompt_parts).strip() or None
-
-    resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
-    generated_bytes = gemini_client.generate_caricature(image_bytes, effective_prompt or None)
-    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (resolution, resolution))
-    generated_path = cfg.generated_dir / f"{asset_key}.png"
-    image_processing.save_image_bytes(resized_bytes, generated_path)
-    vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
-
-    with session_scope() as session:
-        job = _touch_job(session, job_id)
-        job.generated_path = str(generated_path)
-        job.status = JobStatus.GENERATED.value
-        job.error_message = None
-        job.metadata_json = {**(job.metadata_json or {}), **vector_meta}
 
 
 def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
@@ -479,7 +381,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
 
         if not vector_data:
             raise QueueError(
-                "Vector data missing for job; regenerate the caricature before queuing."
+                "Vector data missing for job; add generated image before queuing."
             )
 
     try:
@@ -586,15 +488,15 @@ def start_print_job(
     else:
         # Access the config object correctly depending on whether it's a dict or object
         if isinstance(config, dict):
-             timeout_value = float(config.get("SERIAL_TIMEOUT", 2.0))
-             port = config.get("SERIAL_PORT")
-             baudrate = int(config.get("SERIAL_BAUDRATE", 115200))
-             line_delay = float(config.get("PLOTTER_LINE_DELAY", 0.0))
+            timeout_value = float(config.get("SERIAL_TIMEOUT", 2.0))
+            port = config.get("SERIAL_PORT")
+            baudrate = int(config.get("SERIAL_BAUDRATE", 115200))
+            line_delay = float(config.get("PLOTTER_LINE_DELAY", 0.0))
         else:
-             timeout_value = float(getattr(config, "SERIAL_TIMEOUT", 2.0))
-             port = getattr(config, "SERIAL_PORT")
-             baudrate = int(getattr(config, "SERIAL_BAUDRATE", 115200))
-             line_delay = float(getattr(config, "PLOTTER_LINE_DELAY", 0.0))
+            timeout_value = float(getattr(config, "SERIAL_TIMEOUT", 2.0))
+            port = getattr(config, "SERIAL_PORT")
+            baudrate = int(getattr(config, "SERIAL_BAUDRATE", 115200))
+            line_delay = float(getattr(config, "PLOTTER_LINE_DELAY", 0.0))
 
         controller = PlotterController(
             port=port,
@@ -704,4 +606,3 @@ def get_generated_image_path(job_id: int) -> Path:
         if not path.exists():
             raise QueueError("Generated image missing from disk.")
         return path
-

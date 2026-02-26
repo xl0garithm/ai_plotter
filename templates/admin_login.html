@@ -4,29 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Admin Login - AI Plotter</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <link rel="stylesheet" href="/static/css/styles.css" />
   </head>
   <body>
     <main class="login-container">
       <div class="card">
         <h1>Admin Access</h1>
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            <div class="alert alert-error">
-              {% for message in messages %}
-                <p>{{ message }}</p>
-              {% endfor %}
-            </div>
-          {% endif %}
-        {% endwith %}
-        <form method="post" action="{{ url_for('admin.login') }}" class="login-form">
+        {% if flash %}
+        <div class="alert alert-error">
+          <p>{{ flash }}</p>
+        </div>
+        {% endif %}
+        <form method="post" action="/admin/login" class="login-form">
           <div class="form-group">
             <label for="pin">Enter PIN</label>
             <input type="password" id="pin" name="pin" required autofocus />
           </div>
           <button type="submit" class="btn btn-primary">Unlock</button>
         </form>
-        <p class="back-link"><a href="{{ url_for('web.index') }}">← Back to Plotter</a></p>
+        <p class="back-link"><a href="/">← Back to Plotter</a></p>
       </div>
     </main>
   </body>

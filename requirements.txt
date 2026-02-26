@@ -1,9 +1,13 @@
-Flask
+fastapi
+uvicorn[standard]
+python-multipart
+jinja2
 SQLAlchemy
 requests
 Pillow
 numpy
 pyserial
+python-chess
 pytest
 scikit-image
-
+werkzeug

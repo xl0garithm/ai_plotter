@@ -42,4 +42,3 @@ def save_image_bytes(image_bytes: bytes, destination: Path) -> Path:
     with destination.open("wb") as fp:
         fp.write(image_bytes)
     return destination
-
