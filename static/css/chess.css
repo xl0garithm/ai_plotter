@@ -1,0 +1,17 @@
+/* Chess page only – loaded after styles.css so it wins. Forces document scroll. */
+html.page-chess {
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+}
+body.page-chess {
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+  min-height: 100vh;
+}
+body.page-chess main {
+  min-height: 0 !important;
+  height: auto !important;
+  overflow: visible !important;
+}

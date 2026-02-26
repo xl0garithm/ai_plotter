@@ -34,21 +34,15 @@ body {
   overflow-y: auto;
 }
 
-/* Chess page: explicit scroll wrapper so vertical scrollbar always appears when content overflows */
+/* Chess page: normal document scroll (no wrapper) */
+html.page-chess,
 body.page-chess {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  min-height: 100vh;
-}
-
-.chess-scroll-wrap {
-  height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
+  height: auto;
+  min-height: 100vh;
 }
-body.page-chess .chess-scroll-wrap main {
+body.page-chess main {
   min-height: 0;
 }
 
@@ -565,6 +559,7 @@ tr:hover {
     overflow-y: hidden;
   }
 
+  html.page-chess,
   body.page-chess {
     overflow-y: auto;
   }
@@ -576,7 +571,7 @@ tr:hover {
     overflow: hidden;
   }
 
-  body.page-chess .chess-scroll-wrap main {
+  body.page-chess main {
     height: auto;
     min-height: 0;
     overflow: visible;

@@ -1,36 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="page-chess">
 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Chess Board - AI Plotter</title>
   <link rel="stylesheet" href="/static/css/styles.css" />
+  <link rel="stylesheet" href="/static/css/chess.css" />
   <script type="module">
     import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1/+esm';
     window.Chess = Chess;
     window.dispatchEvent(new Event('chessjs-ready'));
   </script>
   <style>
-    /* Force vertical scroll: wrapper is viewport height; main must not force min-height so content can overflow */
-    body.page-chess {
-      overflow: hidden !important;
-      margin: 0 !important;
-      padding: 0 !important;
-    }
-
-    .chess-scroll-wrap {
-      height: 100vh !important;
-      max-height: 100vh !important;
-      overflow-y: auto !important;
-      overflow-x: hidden !important;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    body.page-chess .chess-scroll-wrap main {
-      min-height: 0 !important;
-    }
-
     .chess-preview {
       max-width: 500px;
       margin: 0 auto;
@@ -67,10 +49,8 @@
   </style>
 </head>
 
-<body class="page-chess" style="overflow: hidden; margin: 0; padding: 0;">
-  <div class="chess-scroll-wrap"
-    style="height: 100vh; max-height: 100vh; overflow-y: scroll; overflow-x: hidden; display: block;">
-    <main id="app" style="min-height: 0;">
+<body class="page-chess">
+  <main id="app">
       <header class="hero">
         <h1>Chess Board</h1>
         <p class="hero-subtitle">Preview and print a chess board pattern. Play: human v human, human v computer, or
@@ -98,7 +78,7 @@
           </select>
           <button id="play-setup-btn">New game</button>
         </p>
-        <p id="play-status">Turn: white. FEN: (loads on New game)</p>
+        <p id="play-status">White to move.</p>
         <p>
           <label>Move (UCI, e.g. e2e4):</label>
           <input type="text" id="play-uci" size="6" placeholder="e2e4" />
@@ -140,9 +120,8 @@
         <div id="status" class="status-box" hidden></div>
       </section>
     </main>
-  </div>
 
-  <script>
+    <script>
     function showStatus(el, message, type) {
       el.textContent = message;
       el.className = 'status-box ' + type;
@@ -213,10 +192,12 @@
 
     let clientChess = null;
 
-    function showPlayStatus(data) {
-      const t = data.game_over ? `Game over: ${data.result}` : `Turn: ${data.turn}`;
-      const diff = (data.mode !== 'human_v_human' && data.difficulty) ? ` · Difficulty: ${data.difficulty}` : '';
-      playStatus.textContent = t + diff + '. FEN: ' + (data.fen || '').slice(0, 50) + '...';
+      function showPlayStatus(data) {
+        const turn = (data.turn || '').toLowerCase();
+        const who = turn === 'white' ? 'White' : turn === 'black' ? 'Black' : data.turn || '—';
+        const t = data.game_over ? `Game over: ${data.result}` : `${who} to move`;
+        const diff = (data.mode !== 'human_v_human' && data.difficulty) ? ` · ${data.difficulty}` : '';
+        playStatus.textContent = t + diff + '.';
       playStepBtn.style.display = data.mode === 'computer_v_computer' ? 'inline-block' : 'none';
       if (data.difficulty && playDifficulty) playDifficulty.value = data.difficulty;
       if (window.Chess && data.fen) {
