@@ -12,3 +12,9 @@ def index():
     """Render main capture interface."""
     return render_template("index.html", style_presets=get_ui_style_map())
 
+
+@web_bp.get("/chess")
+def chess():
+    """Render chess board drawing interface."""
+    return render_template("chess.html")
+

@@ -12,7 +12,18 @@ from flask import (
     session,
 )
 
+import tempfile
+from pathlib import Path
+
+from services.chess import (
+    generate_chess_board,
+    chess_board_to_svg,
+    generate_chess_demo_gcode,
+    generate_chess_demo_svg,
+)
+from services.gcode import vector_data_to_gcode, GCodeSettings, GCodeError
 from services.gemini_client import GeminiClient, GeminiClientError
+from services.plotter import PlotterController, PlotterError
 from services.queue import (
     QueueError,
     approve_job,
@@ -193,3 +204,161 @@ def admin_manual_upload() -> Response:
         return jsonify({"error": "Failed to ingest manual upload."}), 500
 
     return jsonify(job)
+
+
+@api_bp.get("/chess/preview")
+def chess_preview() -> Response:
+    """Return SVG preview of chess board."""
+    board_size = request.args.get("size", 800, type=int)
+    hatch_spacing = request.args.get("hatch_spacing", 6.0, type=float)
+
+    vector_data = generate_chess_board(
+        board_size=board_size,
+        hatch_spacing=hatch_spacing,
+    )
+    svg_content = chess_board_to_svg(vector_data)
+
+    return Response(svg_content, mimetype="image/svg+xml")
+
+
+@api_bp.post("/chess/print")
+def chess_print() -> Response:
+    """Generate chess board and send to plotter."""
+    config = current_app.config
+
+    data = request.get_json(silent=True) or {}
+    board_size = data.get("board_size", 800)
+    hatch_spacing = data.get("hatch_spacing", 6.0)
+
+    try:
+        vector_data = generate_chess_board(
+            board_size=board_size,
+            hatch_spacing=hatch_spacing,
+        )
+
+        # 100mm target physical size
+        target_size_mm = 100.0
+        pixel_size_mm = target_size_mm / board_size
+
+        settings = GCodeSettings(
+            pixel_size_mm=pixel_size_mm,
+            feed_rate=config.get("PLOTTER_FEED_RATE", 5000),
+            pen_dwell_seconds=0.05,
+        )
+
+        # Generate G-code to temp file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".gcode", delete=False
+        ) as tmp:
+            gcode_path = Path(tmp.name)
+
+        stats = vector_data_to_gcode(vector_data, gcode_path, settings)
+
+        # Check dry-run mode
+        dry_run = config.get("PLOTTER_DRY_RUN", False)
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
+
+        if dry_run:
+            gcode_path.unlink(missing_ok=True)
+            return jsonify({
+                "success": True,
+                "dry_run": True,
+                "stats": {
+                    "path_count": stats.path_count,
+                    "estimated_seconds": round(stats.estimated_seconds, 1),
+                },
+            })
+
+        # Send to plotter
+        controller = PlotterController(
+            port=config["SERIAL_PORT"],
+            baudrate=config["SERIAL_BAUDRATE"],
+            timeout=config.get("SERIAL_TIMEOUT", 10.0),
+            line_delay=config.get("PLOTTER_LINE_DELAY", 0.1),
+        )
+
+        try:
+            controller.connect()
+            with gcode_path.open("r", encoding="utf-8") as f:
+                gcode_lines = f.readlines()
+            controller.send_gcode_lines(gcode_lines)
+            return jsonify({
+                "success": True,
+                "stats": {
+                    "path_count": stats.path_count,
+                    "estimated_seconds": round(stats.estimated_seconds, 1),
+                },
+            })
+        finally:
+            controller.disconnect()
+            gcode_path.unlink(missing_ok=True)
+
+    except GCodeError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except PlotterError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Chess print failed: %s", exc)
+        return jsonify({"error": "Unexpected error during printing."}), 500
+
+
+@api_bp.get("/chess/demo/preview")
+def chess_demo_preview() -> Response:
+    """Return SVG preview of the chess demo traversal."""
+    config = current_app.config
+    svg_content = generate_chess_demo_svg(
+        board_size_mm=config.get("CHESS_BOARD_SIZE_MM", 200.0),
+        square_count=config.get("CHESS_SQUARE_COUNT", 8),
+        origin_x=config.get("CHESS_ORIGIN_X_MM", 0.0),
+        origin_y=config.get("CHESS_ORIGIN_Y_MM", 0.0),
+    )
+    return Response(svg_content, mimetype="image/svg+xml")
+
+
+@api_bp.post("/chess/demo/run")
+def chess_demo_run() -> Response:
+    """Generate chess demo G-code and send to plotter."""
+    config = current_app.config
+
+    gcode_lines, stats = generate_chess_demo_gcode(
+        board_size_mm=config.get("CHESS_BOARD_SIZE_MM", 200.0),
+        square_count=config.get("CHESS_SQUARE_COUNT", 8),
+        origin_x=config.get("CHESS_ORIGIN_X_MM", 0.0),
+        origin_y=config.get("CHESS_ORIGIN_Y_MM", 0.0),
+        tap_dwell_s=config.get("CHESS_TAP_DWELL_S", 0.3),
+    )
+
+    dry_run = config.get("PLOTTER_DRY_RUN", False)
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
+
+    if dry_run:
+        return jsonify({
+            "success": True,
+            "dry_run": True,
+            "stats": stats,
+        })
+
+    try:
+        controller = PlotterController(
+            port=config["SERIAL_PORT"],
+            baudrate=config["SERIAL_BAUDRATE"],
+            timeout=config.get("SERIAL_TIMEOUT", 10.0),
+            line_delay=config.get("PLOTTER_LINE_DELAY", 0.1),
+        )
+        controller.connect()
+        try:
+            controller.send_gcode_lines(gcode_lines)
+        finally:
+            controller.disconnect()
+
+        return jsonify({
+            "success": True,
+            "stats": stats,
+        })
+    except PlotterError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Chess demo run failed: %s", exc)
+        return jsonify({"error": "Unexpected error during demo."}), 500

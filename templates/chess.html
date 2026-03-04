@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chess Board - AI Plotter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <style>
+      .chess-preview {
+        max-width: 500px;
+        margin: 0 auto;
+        border: 1px solid #ccc;
+        background: #fff;
+      }
+      .chess-preview svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .status-box {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        border-radius: 4px;
+      }
+      .status-box.success {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status-box.error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .status-box.loading {
+        background: #fff3cd;
+        color: #856404;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <header class="hero">
+        <h1>Chess Board</h1>
+        <p class="hero-subtitle">Preview and print a chess board pattern.</p>
+      </header>
+
+      <!-- Square Traversal Demo -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Square Traversal Demo</h2>
+        </div>
+        <p>Moves the head to every square center in order (a8 &rarr; h8, a7 &rarr; h7, &hellip; a1 &rarr; h1), tapping down at each.</p>
+        <div class="chess-preview" id="demo-preview-container">
+          <p>Loading demo preview...</p>
+        </div>
+        <div class="controls" style="margin-top: 1rem;">
+          <button id="demo-run-btn">Run Demo</button>
+        </div>
+        <div id="demo-status" class="status-box" hidden></div>
+      </section>
+
+      <!-- Board Print -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Board Print Preview</h2>
+        </div>
+        <div class="chess-preview" id="preview-container">
+          <p>Loading preview...</p>
+        </div>
+        <div class="controls" style="margin-top: 1rem;">
+          <button id="print-btn">Print Board</button>
+          <a href="/" class="secondary" style="display: inline-block; padding: 0.5rem 1rem;">Back to Home</a>
+        </div>
+        <div id="status" class="status-box" hidden></div>
+      </section>
+    </main>
+
+    <script>
+      function showStatus(el, message, type) {
+        el.textContent = message;
+        el.className = 'status-box ' + type;
+        el.hidden = false;
+      }
+
+      // --- Demo section ---
+      const demoPreview = document.getElementById('demo-preview-container');
+      const demoRunBtn = document.getElementById('demo-run-btn');
+      const demoStatus = document.getElementById('demo-status');
+
+      fetch('/api/chess/demo/preview')
+        .then(res => res.text())
+        .then(svg => { demoPreview.innerHTML = svg; })
+        .catch(err => {
+          demoPreview.innerHTML = '<p>Failed to load demo preview.</p>';
+          console.error(err);
+        });
+
+      demoRunBtn.addEventListener('click', async () => {
+        demoRunBtn.disabled = true;
+        showStatus(demoStatus, 'Running traversal demo...', 'loading');
+
+        try {
+          const res = await fetch('/api/chess/demo/run', { method: 'POST' });
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            const s = data.stats;
+            const msg = data.dry_run
+              ? `Dry run complete. ${s.total_squares} squares, ~${s.estimated_seconds}s estimated.`
+              : `Demo complete! ${s.total_squares} squares visited.`;
+            showStatus(demoStatus, msg, 'success');
+          } else {
+            showStatus(demoStatus, data.error || 'Demo failed.', 'error');
+          }
+        } catch (err) {
+          showStatus(demoStatus, 'Network error.', 'error');
+          console.error(err);
+        } finally {
+          demoRunBtn.disabled = false;
+        }
+      });
+
+      // --- Board print section ---
+      const previewContainer = document.getElementById('preview-container');
+      const printBtn = document.getElementById('print-btn');
+      const statusEl = document.getElementById('status');
+
+      fetch('/api/chess/preview')
+        .then(res => res.text())
+        .then(svg => { previewContainer.innerHTML = svg; })
+        .catch(err => {
+          previewContainer.innerHTML = '<p>Failed to load preview.</p>';
+          console.error(err);
+        });
+
+      printBtn.addEventListener('click', async () => {
+        printBtn.disabled = true;
+        showStatus(statusEl, 'Sending to plotter...', 'loading');
+
+        try {
+          const res = await fetch('/api/chess/print', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            const msg = data.dry_run
+              ? 'Dry run complete (no plotter connected).'
+              : 'Print complete!';
+            showStatus(statusEl, msg, 'success');
+          } else {
+            showStatus(statusEl, data.error || 'Print failed.', 'error');
+          }
+        } catch (err) {
+          showStatus(statusEl, 'Network error.', 'error');
+          console.error(err);
+        } finally {
+          printBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
