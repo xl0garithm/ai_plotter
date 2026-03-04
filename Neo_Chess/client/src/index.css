@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Cyberpunk Palette - HSL Space Separated */
+  
+  /* Backgrounds: Deep void blacks */
+  --background: 240 10% 4%;     /* #09090b */
+  --foreground: 180 100% 50%;   /* Cyan Text */
+
+  /* Primary: Electric Cyan */
+  --primary: 180 100% 50%;      /* #00f3ff */
+  --primary-foreground: 240 10% 4%;
+
+  /* Secondary/Accent: Neon Magenta */
+  --secondary: 300 100% 50%;    /* #ff00ff */
+  --secondary-foreground: 240 10% 4%;
+
+  /* Muted/Surface */
+  --muted: 240 6% 15%;
+  --muted-foreground: 180 30% 60%;
+  
+  /* Cards/Surfaces with glass effect */
+  --card: 240 10% 6%;
+  --card-foreground: 180 100% 50%;
+  --popover: 240 10% 6%;
+  --popover-foreground: 180 100% 50%;
+
+  /* Borders & Inputs */
+  --border: 180 50% 20%;
+  --input: 240 6% 15%;
+  --ring: 180 100% 50%;
+
+  /* Semantic */
+  --destructive: 0 100% 50%;
+  --radius: 0.5rem;
+  
+  /* Custom Font Variables */
+  --font-display: 'Orbitron', sans-serif;
+  --font-mono: 'Share Tech Mono', monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary selection:text-background;
+    font-family: var(--font-mono);
+    background-image: 
+      linear-gradient(rgba(0, 243, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 243, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply font-bold tracking-widest uppercase;
+    text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+  }
+}
+
+@layer components {
+  /* Neon Glow Utilities */
+  .neon-border {
+    @apply border border-primary shadow-[0_0_10px_rgba(0,243,255,0.3)];
+  }
+  
+  .neon-text {
+    @apply text-primary drop-shadow-[0_0_8px_rgba(0,243,255,0.6)];
+  }
+
+  .neon-text-secondary {
+    @apply text-secondary drop-shadow-[0_0_8px_rgba(255,0,255,0.6)];
+  }
+
+  .glass-panel {
+    @apply bg-background/80 backdrop-blur-md border border-primary/30 rounded-xl shadow-lg shadow-primary/5;
+  }
+  
+  .cyber-button {
+    @apply relative overflow-hidden bg-transparent border-2 border-primary text-primary 
+           font-bold py-3 px-8 rounded-none transition-all duration-200
+           hover:bg-primary hover:text-background hover:shadow-[0_0_20px_rgba(0,243,255,0.6)]
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+  
+  .cyber-button-secondary {
+    @apply border-secondary text-secondary hover:bg-secondary hover:text-background hover:shadow-[0_0_20px_rgba(255,0,255,0.6)];
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-background;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/30 rounded-full hover:bg-primary/60;
+}
