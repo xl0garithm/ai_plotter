@@ -4,22 +4,22 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-import re
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any
 
 from werkzeug.datastructures import FileStorage
 
 from config import Config
 from models import Job
-from services.database import session_scope
 from services import gcode as gcode_service
 from services import image_processing, vectorizer
-from services.style_presets import DEFAULT_STYLE_KEY, get_style
+from services.database import session_scope
 from services.plotter import PlotterController, PlotterError
+from services.style_presets import DEFAULT_STYLE_KEY, get_style
 
 
 class QueueError(RuntimeError):
@@ -48,10 +48,7 @@ class QueueConfig:
     gcode_dir: Path
 
 
-_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1F\x7F]")
-
-
-def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
+def _get_queue_config(config: Config | dict[str, Any]) -> QueueConfig:
     if isinstance(config, dict):
         upload_dir = Path(config["UPLOAD_DIR"])
         generated_dir = Path(config["GENERATED_DIR"])
@@ -63,25 +60,13 @@ def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
     return QueueConfig(upload_dir=upload_dir, generated_dir=generated_dir, gcode_dir=gcode_dir)
 
 
-def _sanitize_contact_field(value: Optional[str]) -> Optional[str]:
-    """Strip control characters and trim length for stored contact fields."""
-    if not value:
-        return None
-    cleaned = _CONTROL_CHAR_PATTERN.sub("", value)
-    cleaned = cleaned.strip()
-    if not cleaned:
-        return None
-    return cleaned[:255]
-
-
-def _config_value(config: Union[Config, Dict[str, Any]], name: str, default: Any) -> Any:
+def _config_value(config: Config | dict[str, Any], name: str, default: Any) -> Any:
     if isinstance(config, dict):
         return config.get(name, default)
     return getattr(config, name, default)
 
 
-def _logger():
-    return logging.getLogger("services.queue")
+logger = logging.getLogger(__name__)
 
 
 def _temporary_asset_key() -> str:
@@ -89,7 +74,7 @@ def _temporary_asset_key() -> str:
     return f"pending-{uuid.uuid4().hex}"
 
 
-def _is_dry_run(config: Union[Config, Dict[str, Any]]) -> bool:
+def _is_dry_run(config: Config | dict[str, Any]) -> bool:
     if isinstance(config, dict):
         value = config.get("PLOTTER_DRY_RUN")
     else:
@@ -100,7 +85,7 @@ def _is_dry_run(config: Union[Config, Dict[str, Any]]) -> bool:
     return bool(value)
 
 
-def _is_z_inverted(config: Union[Config, Dict[str, Any]]) -> bool:
+def _is_z_inverted(config: Config | dict[str, Any]) -> bool:
     if isinstance(config, dict):
         value = config.get("PLOTTER_INVERT_Z")
     else:
@@ -115,8 +100,8 @@ def _vectorize_and_store(
     asset_key: str,
     image_path: Path,
     cfg: QueueConfig,
-    config: Union[Config, Dict[str, Any]],
-) -> Dict[str, Any]:
+    config: Config | dict[str, Any],
+) -> dict[str, Any]:
     """Run vectorization and persist SVG/JSON artifacts."""
 
     threshold = int(_config_value(config, "VECTORIZE_THRESHOLD", 240))
@@ -157,7 +142,7 @@ def _touch_job(session, job_id: int) -> Job:
     job = session.get(Job, job_id)
     if job is None:
         raise QueueError(f"Job {job_id} not found.")
-    job.updated_at = datetime.utcnow()
+    job.updated_at = datetime.now(timezone.utc)
     return job
 
 
@@ -169,7 +154,7 @@ def _init_print_progress(job_id: int, total_lines: int) -> None:
         metadata["print_progress"] = {
             "total_lines": total_lines,
             "current_line": 0,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         obj.metadata_json = metadata
 
@@ -178,7 +163,7 @@ def _update_print_progress(
     job_id: int,
     *,
     current_line: int,
-    total_lines: Optional[int] = None,
+    total_lines: int | None = None,
 ) -> None:
     with session_scope() as session:
         obj = _touch_job(session, job_id)
@@ -187,11 +172,13 @@ def _update_print_progress(
         if total_lines is not None:
             progress["total_lines"] = max(0, int(total_lines))
         existing_total = progress.get("total_lines") or total_lines or 0
-        safe_current = max(0, min(int(current_line), int(existing_total) if existing_total else int(current_line)))
+        safe_current = max(
+            0, min(int(current_line), int(existing_total) if existing_total else int(current_line))
+        )
         progress.update(
             {
                 "current_line": safe_current,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
         metadata["print_progress"] = progress
@@ -207,20 +194,12 @@ def _clear_print_progress(job_id: int) -> None:
             obj.metadata_json = metadata
 
 
-def _job_to_public_dict(job: Job) -> Dict[str, Any]:
-    return job.to_dict(admin=False)
-
-
-def _job_to_admin_dict(job: Job) -> Dict[str, Any]:
-    return job.to_dict(admin=True)
-
-
 def create_job_from_manual_upload(
-    upload: Union[FileStorage, tuple],
+    upload: FileStorage | tuple,
     *,
-    requester: Optional[str],
+    requester: str | None,
     config: Config,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a job directly from an uploaded outline image. upload is FileStorage or (bytes, filename)."""
     if upload is None:
         raise QueueError("No image provided.")
@@ -259,7 +238,9 @@ def create_job_from_manual_upload(
             original_path.write_bytes(content)
         else:
             image_processing.save_upload(upload, original_path)
-        resized = image_processing.resize_image_bytes(original_path.read_bytes(), (resolution, resolution))
+        resized = image_processing.resize_image_bytes(
+            original_path.read_bytes(), (resolution, resolution)
+        )
         image_processing.save_image_bytes(resized, generated_path)
         vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
         metadata = {
@@ -277,7 +258,7 @@ def create_job_from_manual_upload(
     return get_job(job_id, admin=True)
 
 
-def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
+def get_job(job_id: int, *, admin: bool = False) -> dict[str, Any]:
     """Return a single job."""
     with session_scope() as session:
         job = session.get(Job, job_id)
@@ -286,33 +267,33 @@ def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
         return job.to_dict(admin=admin)
 
 
-def list_jobs(*, admin: bool = False, limit: int = 20) -> List[Dict[str, Any]]:
+def list_jobs(*, admin: bool = False, limit: int = 20) -> list[dict[str, Any]]:
     """Return jobs for display."""
     with session_scope() as session:
         query = session.query(Job).order_by(Job.created_at.desc()).limit(limit)
         jobs: Iterable[Job] = query.all()
         if admin:
-            return [_job_to_admin_dict(job) for job in jobs]
-        return [_job_to_public_dict(job) for job in jobs]
+            return [job.to_dict(admin=True) for job in jobs]
+        return [job.to_dict(admin=False) for job in jobs]
 
 
-def set_job_status(job_id: int, status: JobStatus) -> Dict[str, Any]:
+def set_job_status(job_id: int, status: JobStatus) -> dict[str, Any]:
     """Update job status."""
     with session_scope() as session:
         job = _touch_job(session, job_id)
         job.status = status.value
         if status == JobStatus.CONFIRMED:
-            job.confirmed_at = datetime.utcnow()
+            job.confirmed_at = datetime.now(timezone.utc)
         elif status == JobStatus.APPROVED:
-            job.approved_at = datetime.utcnow()
+            job.approved_at = datetime.now(timezone.utc)
         elif status == JobStatus.PRINTING:
-            job.started_at = datetime.utcnow()
+            job.started_at = datetime.now(timezone.utc)
         elif status == JobStatus.COMPLETED:
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
         return job.to_dict(admin=True)
 
 
-def confirm_job(job_id: int) -> Dict[str, Any]:
+def confirm_job(job_id: int) -> dict[str, Any]:
     """Mark a job as confirmed by a user."""
     job = get_job(job_id, admin=True)
     if job["status"] != JobStatus.GENERATED.value:
@@ -320,7 +301,7 @@ def confirm_job(job_id: int) -> Dict[str, Any]:
     return set_job_status(job_id, JobStatus.CONFIRMED)
 
 
-def approve_job(job_id: int) -> Dict[str, Any]:
+def approve_job(job_id: int) -> dict[str, Any]:
     """Approve a job for plotting."""
     job = get_job(job_id, admin=True)
     if job["status"] not in (JobStatus.CONFIRMED.value, JobStatus.GENERATED.value):
@@ -328,7 +309,7 @@ def approve_job(job_id: int) -> Dict[str, Any]:
     return set_job_status(job_id, JobStatus.APPROVED)
 
 
-def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Dict[str, Any]:
+def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str, Any]:
     """Move job to queued state for plotting."""
     job = get_job(job_id, admin=True)
     allowed_statuses = {
@@ -343,7 +324,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
 
     cfg = _get_queue_config(config)
 
-    metadata: Dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
     with session_scope() as session:
         obj = _touch_job(session, job_id)
         if not obj.generated_path:
@@ -351,7 +332,9 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
         generated_path = Path(obj.generated_path)
         if not generated_path.exists():
             raise QueueError("Generated image file missing.")
-        gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
+        gcode_path = (
+            Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
+        )
         metadata = obj.metadata_json or {}
 
         vector_data: vectorizer.VectorData | None = None
@@ -380,9 +363,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
                 break
 
         if not vector_data:
-            raise QueueError(
-                "Vector data missing for job; add generated image before queuing."
-            )
+            raise QueueError("Vector data missing for job; add generated image before queuing.")
 
     try:
         target_size_mm = 100.0  # physical drawing size
@@ -407,7 +388,7 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
 
         gcode_stats = gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
-        _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
+        logger.exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
         raise
 
@@ -434,10 +415,10 @@ def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Di
 
 def start_print_job(
     job_id: int,
-    config: Union[Config, Dict[str, Any]],
+    config: Config | dict[str, Any],
     *,
     allow_reprint: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Send the job's G-code to the plotter."""
     job = get_job(job_id, admin=True)
     status = job["status"]
@@ -481,7 +462,7 @@ def start_print_job(
     gcode_file = Path(gcode_path)
 
     if _is_dry_run(config):
-        _logger().info("Dry-run enabled; writing G-code to text file for job %s", job_id)
+        logger.info("Dry-run enabled; writing G-code to text file for job %s", job_id)
         set_job_status(job_id, JobStatus.PRINTING)
         dry_run_path = gcode_file.with_suffix(".dryrun.txt")
         dry_run_path.write_text(gcode_file.read_text(encoding="utf-8"), encoding="utf-8")
@@ -540,7 +521,7 @@ def start_print_job(
                 progress_callback=_progress_callback,
             )
         except PlotterError as exc:
-            _logger().exception("Plotter error while printing job %s: %s", job_id, exc)
+            logger.exception("Plotter error while printing job %s: %s", job_id, exc)
             mark_job_failed(job_id, str(exc))
             raise
         finally:
@@ -548,7 +529,9 @@ def start_print_job(
                 if _plotter_state.should_rehome_on_cancel:
                     controller.rehome()
             except PlotterError as rehome_exc:
-                _logger().warning("Failed to rehome after cancellation for job %s: %s", job_id, rehome_exc)
+                logger.warning(
+                    "Failed to rehome after cancellation for job %s: %s", job_id, rehome_exc
+                )
             finally:
                 controller.disconnect()
             _plotter_state.controller = None
@@ -559,7 +542,7 @@ def start_print_job(
     return set_job_status(job_id, JobStatus.COMPLETED)
 
 
-def cancel_job(job_id: int) -> Dict[str, Any]:
+def cancel_job(job_id: int) -> dict[str, Any]:
     """Cancel a job."""
     job = get_job(job_id, admin=True)
     if job["status"] in (JobStatus.COMPLETED.value, JobStatus.CANCELLED.value):
@@ -579,7 +562,7 @@ def _signal_plotter_cancel() -> None:
 
 
 class _PlotterState:
-    controller: Optional[PlotterController] = None
+    controller: PlotterController | None = None
     should_rehome_on_cancel: bool = False
 
 

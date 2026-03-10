@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
 from skimage import measure
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass
@@ -20,10 +20,10 @@ class VectorData:
 
     width: int
     height: int
-    paths: List[List[Point]]
+    paths: list[list[Point]]
 
 
-def _rdp(points: Sequence[Point], epsilon: float) -> List[Point]:
+def _rdp(points: Sequence[Point], epsilon: float) -> list[Point]:
     """Ramer-Douglas-Peucker simplification."""
     if len(points) < 3 or epsilon <= 0:
         return list(points)
@@ -46,10 +46,10 @@ def _rdp(points: Sequence[Point], epsilon: float) -> List[Point]:
     return first_half[:-1] + second_half
 
 
-def _downsample(points: Sequence[Point], step: int) -> List[Point]:
+def _downsample(points: Sequence[Point], step: int) -> list[Point]:
     if step <= 1:
         return list(points)
-    return list(points)[:: step]
+    return list(points)[::step]
 
 
 def vectorize_image(
@@ -69,7 +69,7 @@ def vectorize_image(
 
     # skimage coordinates are (row, col); convert to (x, y) later
     contours = measure.find_contours(mask.astype(float), 0.5)
-    paths: List[List[Point]] = []
+    paths: list[list[Point]] = []
 
     for contour in contours:
         # contour is N x 2 array of [row, col]
@@ -95,8 +95,8 @@ def crop_and_scale_vector_data(
     if not data.paths:
         return data
 
-    all_x: List[float] = []
-    all_y: List[float] = []
+    all_x: list[float] = []
+    all_y: list[float] = []
     for path in data.paths:
         for x, y in path:
             all_x.append(float(x))
@@ -134,11 +134,9 @@ def crop_and_scale_vector_data(
     if target and max_extent > 0:
         scale = target / max_extent
 
-    scaled_paths: List[List[Point]] = []
+    scaled_paths: list[list[Point]] = []
     for path in data.paths:
-        scaled_paths.append(
-            [((x - crop_min_x) * scale, (y - crop_min_y) * scale) for x, y in path]
-        )
+        scaled_paths.append([((x - crop_min_x) * scale, (y - crop_min_y) * scale) for x, y in path])
 
     scaled_width = max(1, int(round(new_width * scale)))
     scaled_height = max(1, int(round(new_height * scale)))
@@ -160,8 +158,7 @@ def save_vector_data(data: VectorData, output_path: Path) -> Path:
 def load_vector_data(path: Path) -> VectorData:
     payload = json.loads(path.read_text(encoding="utf-8"))
     paths = [
-        [(float(x), float(y)) for x, y in path_points]
-        for path_points in payload.get("paths", [])
+        [(float(x), float(y)) for x, y in path_points] for path_points in payload.get("paths", [])
     ]
     return VectorData(
         width=int(payload.get("width", 0)),
@@ -173,7 +170,7 @@ def load_vector_data(path: Path) -> VectorData:
 def save_svg(data: VectorData, output_path: Path, *, stroke_px: float = 3.0) -> Path:
     """Write a minimal SVG representation for debugging and preview."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    svg_lines: List[str] = [
+    svg_lines: list[str] = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{data.width}" height="{data.height}" viewBox="0 0 {data.width} {data.height}" fill="none" stroke="black" stroke-width="{stroke_px}" stroke-linecap="round" stroke-linejoin="round">',
     ]
@@ -182,8 +179,7 @@ def save_svg(data: VectorData, output_path: Path, *, stroke_px: float = 3.0) -> 
         if len(path) < 2:
             continue
         d = " ".join(
-            ["M {:.2f} {:.2f}".format(*path[0])]
-            + ["L {:.2f} {:.2f}".format(x, y) for x, y in path[1:]]
+            ["M {:.2f} {:.2f}".format(*path[0])] + [f"L {x:.2f} {y:.2f}" for x, y in path[1:]]
         )
         svg_lines.append(f'<path d="{d}" />')
 

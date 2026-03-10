@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Dict
-
 # Shared preset instructions—mirror the Gemini base prompt to keep outputs plotter-safe.
 BASE_PROMPT = (
     "Use only bold #000 ink lines on a pure white background so the drawing can be plotted with one pen. "
@@ -12,7 +10,7 @@ BASE_PROMPT = (
     "If using text anywhere, render only oversized block lettering with extremely bold, thick contour lines so the SVG converter reliably captures it."
 )
 
-STYLE_PRESETS: Dict[str, Dict[str, str]] = {
+STYLE_PRESETS: dict[str, dict[str, str]] = {
     "nerdy": {
         "label": "Nerdy",
         "description": "Crisp outlines with confident energy—great for glasses and hoodie detail.",
@@ -67,6 +65,6 @@ STYLE_PRESETS: Dict[str, Dict[str, str]] = {
 DEFAULT_STYLE_KEY = "nerdy"
 
 
-def get_style(style_key: str) -> Dict[str, str]:
+def get_style(style_key: str) -> dict[str, str]:
     """Return the preset; fallback to default if missing."""
     return STYLE_PRESETS.get(style_key, STYLE_PRESETS[DEFAULT_STYLE_KEY])

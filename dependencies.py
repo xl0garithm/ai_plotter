@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hmac
 import hashlib
+import hmac
 import logging
 from typing import Annotated
 
@@ -85,4 +85,5 @@ def require_admin_api(
     """Dependency: raise 401 if not logged in (for API routes)."""
     if not is_admin_logged_in(admin_cookie):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=401, detail="Unauthorized")

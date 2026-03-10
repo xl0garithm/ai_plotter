@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import uuid
 from pathlib import Path
-from typing import Tuple
 
 from PIL import Image
 from werkzeug.datastructures import FileStorage
@@ -26,7 +25,7 @@ def save_upload(file: FileStorage, destination: Path) -> Path:
     return destination
 
 
-def resize_image_bytes(image_bytes: bytes, size: Tuple[int, int] = (400, 400)) -> bytes:
+def resize_image_bytes(image_bytes: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
     """Resize image bytes to the specified size."""
     with Image.open(io.BytesIO(image_bytes)) as img:
         img = img.convert("RGB")

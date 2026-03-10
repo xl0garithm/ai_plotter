@@ -256,7 +256,9 @@ function buildGameState(
   };
 }
 
-export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
+export type OnMoveCallback = (uci: string, capture: boolean) => void;
+
+export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMove?: OnMoveCallback) {
   const chessRef = useRef(new Chess());
   const [gameState, setGameState] = useState<ChessGameState>(() =>
     buildGameState(chessRef.current, null, gameMode, null, null)
@@ -298,6 +300,8 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
         try {
           const moveResult = chess.move({ from: currentSelected as any, to: square as any });
           if (moveResult) {
+            const uci = moveResult.from + moveResult.to + (moveResult.promotion || "");
+            onMove?.(uci, !!moveResult.captured);
             updateState(null, null, { from: currentSelected, to: square });
           }
         } catch {
@@ -314,7 +318,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
     } else {
       updateState(null, null, gameState.lastMove);
     }
-  }, [gameState.selectedSquare, gameState.lastMove, isHumanTurn, updateState]);
+  }, [gameState.selectedSquare, gameState.lastMove, isHumanTurn, updateState, onMove]);
 
   const confirmPromotion = useCallback((promoteTo: "q" | "r" | "b" | "n") => {
     const pending = gameState.promotionPending;
@@ -324,12 +328,14 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
     try {
       const moveResult = chess.move({ from: pending.from as any, to: pending.to as any, promotion: promoteTo });
       if (moveResult) {
+        const uci = moveResult.from + moveResult.to + (moveResult.promotion || "");
+        onMove?.(uci, !!moveResult.captured);
         updateState(null, null, { from: pending.from, to: pending.to });
       }
     } catch {
       updateState(null, null, gameState.lastMove);
     }
-  }, [gameState.promotionPending, gameState.lastMove, updateState]);
+  }, [gameState.promotionPending, gameState.lastMove, updateState, onMove]);
 
   const resetGame = useCallback(() => {
     chessRef.current = new Chess();
@@ -355,6 +361,8 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
         try {
           const result = chess.move(bestMove);
           if (result) {
+            const uci = result.from + result.to + (result.promotion || "");
+            onMove?.(uci, !!result.captured);
             aiThinkingRef.current = false;
             updateState(null, null, { from: result.from, to: result.to });
           }
@@ -371,7 +379,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
       clearTimeout(timer);
       aiThinkingRef.current = false;
     };
-  }, [gameState.turn, gameState.isGameOver, gameState.promotionPending, gameMode, difficulty, isHumanTurn, updateState]);
+  }, [gameState.turn, gameState.isGameOver, gameState.promotionPending, gameMode, difficulty, isHumanTurn, updateState, onMove]);
 
   return {
     gameState,

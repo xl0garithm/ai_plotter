@@ -2,20 +2,38 @@
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException
+from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
 from config import Config
 from dependencies import set_config
+from routers import admin, api, web
 from services.database import init_db
 
-from routers import admin, api, web
-
 BASE_DIR = Path(__file__).resolve().parent
+NEO_CHESS_DIR = BASE_DIR / "Neo_Chess" / "dist" / "public"
+
+
+class SPAStaticFiles(StarletteStaticFiles):
+    """StaticFiles that serves index.html for non-file paths (SPA fallback)."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as e:
+            if e.status_code == 404 and (not path or "." not in path.split("/")[-1]):
+                return await super().get_response("index.html", scope)
+            raise
 
 
 @asynccontextmanager
@@ -33,6 +51,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+if NEO_CHESS_DIR.exists():
+    app.mount("/chess", SPAStaticFiles(directory=str(NEO_CHESS_DIR), html=True), name="chess")
 
 app.include_router(web.router, tags=["web"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])

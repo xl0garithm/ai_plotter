@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
@@ -73,6 +73,20 @@ function PromotionModal({
   );
 }
 
+const EXECUTE_PLOTTER_KEY = "neo_chess_execute_plotter";
+
+async function executeMoveOnPlotter(uci: string, capture: boolean): Promise<void> {
+  const res = await fetch("/api/chess/execute-move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uci, capture }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `Plotter error: ${res.status}`);
+  }
+}
+
 export default function Game() {
   const [_, setLocation] = useLocation();
 
@@ -81,7 +95,29 @@ export default function Game() {
   const gameMode = (localStorage.getItem("gameMode") as GameMode) || "pvai";
   const difficulty = (localStorage.getItem("difficulty") as Difficulty) || "medium";
 
-  const { gameState, selectSquare, confirmPromotion, resetGame } = useChessEngine(gameMode, difficulty);
+  const [executeOnPlotter, setExecuteOnPlotter] = useState(() =>
+    localStorage.getItem(EXECUTE_PLOTTER_KEY) === "true"
+  );
+  const [plotterError, setPlotterError] = useState<string | null>(null);
+
+  const executeRef = useRef(executeOnPlotter);
+  executeRef.current = executeOnPlotter;
+
+  const handlePlotterMove = useCallback(async (uci: string, capture: boolean) => {
+    if (!executeRef.current) return;
+    setPlotterError(null);
+    try {
+      await executeMoveOnPlotter(uci, capture);
+    } catch (e) {
+      setPlotterError(e instanceof Error ? e.message : "Plotter failed");
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(EXECUTE_PLOTTER_KEY, String(executeOnPlotter));
+  }, [executeOnPlotter]);
+
+  const { gameState, selectSquare, confirmPromotion, resetGame } = useChessEngine(gameMode, difficulty, handlePlotterMove);
   const { mutate: saveGame } = useCreateGame();
   const [hasSaved, setHasSaved] = useState(false);
 
@@ -209,19 +245,35 @@ export default function Game() {
         <Board gameState={gameState} onSquareClick={selectSquare} />
 
         {/* Turn indicator */}
-        <div data-testid="turn-indicator" className="flex items-center gap-3">
-          <div className={`px-5 py-2 rounded-full border font-mono text-sm uppercase tracking-widest transition-all duration-300 ${
-            isAiThinking
-              ? "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)] animate-pulse"
-              : isWhiteTurn
-              ? "bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,243,255,0.4)]"
-              : "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)]"
-          }`}>
-            {turnLabel}
+        <div data-testid="turn-indicator" className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className={`px-5 py-2 rounded-full border font-mono text-sm uppercase tracking-widest transition-all duration-300 ${
+              isAiThinking
+                ? "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)] animate-pulse"
+                : isWhiteTurn
+                ? "bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,243,255,0.4)]"
+                : "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)]"
+            }`}>
+              {turnLabel}
+            </div>
+            {gameState.isCheck && (
+              <div className="px-4 py-2 rounded-full border border-destructive text-destructive font-mono text-sm uppercase tracking-widest animate-pulse">
+                ⚡ CHECK
+              </div>
+            )}
           </div>
-          {gameState.isCheck && (
-            <div className="px-4 py-2 rounded-full border border-destructive text-destructive font-mono text-sm uppercase tracking-widest animate-pulse">
-              ⚡ CHECK
+          <label className="flex items-center gap-2 cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              checked={executeOnPlotter}
+              onChange={(e) => setExecuteOnPlotter(e.target.checked)}
+              className="rounded border-border"
+            />
+            <span className="font-mono text-xs uppercase tracking-widest">Execute on plotter</span>
+          </label>
+          {plotterError && (
+            <div className="px-4 py-2 rounded border border-destructive text-destructive font-mono text-xs">
+              {plotterError}
             </div>
           )}
         </div>

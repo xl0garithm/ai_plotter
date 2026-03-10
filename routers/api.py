@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import tempfile
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from services.chess import (
     generate_chess_demo_gcode,
     generate_chess_demo_svg,
     move_to_gcode,
+    uci_square_to_mm,
 )
 from services.chess_game import get_session
 from services.gcode import GCodeError, GCodeSettings, vector_data_to_gcode
@@ -51,6 +53,7 @@ def _config_dict(request: Request):
         "CHESS_SQUARE_COUNT": c.CHESS_SQUARE_COUNT,
         "CHESS_ORIGIN_X_MM": c.CHESS_ORIGIN_X_MM,
         "CHESS_ORIGIN_Y_MM": c.CHESS_ORIGIN_Y_MM,
+        "CHESS_DISCARD_OFFSET_SQUARES": getattr(c, "CHESS_DISCARD_OFFSET_SQUARES", 1.5),
         "CHESS_TAP_DWELL_S": c.CHESS_TAP_DWELL_S,
         "CHESS_MAGNET_SETTLE_S": c.CHESS_MAGNET_SETTLE_S,
         "ENABLE_MANUAL_UPLOAD": getattr(c, "ENABLE_MANUAL_UPLOAD", False),
@@ -68,6 +71,7 @@ def _config_dict(request: Request):
 
 
 # --- Public API ---
+
 
 @router.get("/health")
 def health_check():
@@ -113,6 +117,7 @@ def job_cancel(job_id: int):
 
 
 # --- Admin API (require login) ---
+
 
 @router.get("/admin/jobs")
 def admin_jobs(_: None = Depends(require_admin_api)):
@@ -178,6 +183,7 @@ async def admin_manual_upload(
 
 
 # --- Chess preview / print ---
+
 
 @router.get("/chess/preview")
 def chess_preview(size: int = 800, hatch_spacing: float = 6.0):
@@ -296,6 +302,7 @@ def chess_demo_run(request: Request):
 
 # --- Chess play ---
 
+
 @router.post("/chess/play/setup")
 def chess_play_setup(body: dict | None = Body(default=None)):
     body = body or {}
@@ -322,15 +329,51 @@ def chess_play_status():
     }
 
 
+@router.post("/chess/execute-move")
+def chess_execute_move(request: Request, body: dict | None = Body(default=None)):
+    """Stateless endpoint: send a single UCI move to the plotter. Used by Neo_Chess."""
+    body = body or {}
+    uci = (body.get("uci") or "").strip()
+    capture = body.get("capture", False)
+    if len(uci) < 4:
+        raise HTTPException(status_code=400, detail="Provide valid UCI move (e.g. e2e4)")
+    try:
+        _send_move_gcode(uci, capture, request)
+    except Exception as e:
+        logger.exception("Execute move failed: %s", e)
+        raise HTTPException(status_code=500, detail="Execute failed: " + str(e))
+    return {"success": True, "dry_run": get_config().PLOTTER_DRY_RUN}
+
+
 def _send_move_gcode(uci: str, capture: bool, request: Request) -> None:
     cfg = _config_dict(request)
+    board_mm = cfg.get("CHESS_BOARD_SIZE_MM", 200.0)
+    square_count = cfg.get("CHESS_SQUARE_COUNT", 8)
+    origin_x = cfg.get("CHESS_ORIGIN_X_MM", 0.0)
+    origin_y = cfg.get("CHESS_ORIGIN_Y_MM", 0.0)
+    config = get_config()
+    if getattr(config, "CHESS_MAGNET_MAX_ON_S", None) is not None and len(uci) >= 4:
+        fx, fy = uci_square_to_mm(uci[0], uci[1], board_mm, square_count, origin_x, origin_y)
+        tx, ty = uci_square_to_mm(uci[2], uci[3], board_mm, square_count, origin_x, origin_y)
+        distance_mm = math.sqrt((tx - fx) ** 2 + (ty - fy) ** 2)
+        rapid_mm_s = getattr(config, "CHESS_RAPID_FEED_MM_S", 100.0)
+        move_time_s = distance_mm / rapid_mm_s if rapid_mm_s > 0 else 0.0
+        if move_time_s > config.CHESS_MAGNET_MAX_ON_S:
+            logger.warning(
+                "Move %s distance %.0f mm (~%.2f s) exceeds CHESS_MAGNET_MAX_ON_S=%.2f s",
+                uci,
+                distance_mm,
+                move_time_s,
+                config.CHESS_MAGNET_MAX_ON_S,
+            )
     lines = move_to_gcode(
         uci,
         capture,
-        board_size_mm=cfg.get("CHESS_BOARD_SIZE_MM", 200.0),
-        square_count=cfg.get("CHESS_SQUARE_COUNT", 8),
-        origin_x=cfg.get("CHESS_ORIGIN_X_MM", 0.0),
-        origin_y=cfg.get("CHESS_ORIGIN_Y_MM", 0.0),
+        board_size_mm=board_mm,
+        square_count=square_count,
+        origin_x=origin_x,
+        origin_y=origin_y,
+        discard_offset_squares=cfg.get("CHESS_DISCARD_OFFSET_SQUARES", 1.5),
         dwell_s=cfg.get("CHESS_TAP_DWELL_S", 0.3),
         settle_after_place_s=cfg.get("CHESS_MAGNET_SETTLE_S", 0.5),
     )

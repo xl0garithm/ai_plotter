@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import chess
 import chess.engine
@@ -25,7 +24,7 @@ class ChessPlaySession:
     def __init__(self, mode: str = "human_v_human") -> None:
         self.mode = mode if mode in PLAY_MODES else "human_v_human"
         self.board = chess.Board()
-        self._engine: Optional[chess.engine.SimpleEngine] = None
+        self._engine: chess.engine.SimpleEngine | None = None
         self._movetime_s = 0.5
         self._difficulty = DEFAULT_DIFFICULTY
         self._skill_level = DIFFICULTY_LEVELS.get(DEFAULT_DIFFICULTY, 10)
@@ -57,7 +56,7 @@ class ChessPlaySession:
             return True
         return False
 
-    def get_ai_move(self) -> Optional[str]:
+    def get_ai_move(self) -> str | None:
         if self.board.is_game_over():
             return None
         try:
@@ -93,17 +92,9 @@ class ChessPlaySession:
     def reset(self) -> None:
         self.board.reset()
 
-    def quit_engine(self) -> None:
-        if self._engine is not None:
-            try:
-                self._engine.quit()
-            except Exception:
-                pass
-            self._engine = None
-
 
 # One session per process (single user)
-_session: Optional[ChessPlaySession] = None
+_session: ChessPlaySession | None = None
 
 
 def get_session() -> ChessPlaySession:

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
 
 from services.vectorizer import VectorData
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 def generate_chess_board(
@@ -25,17 +24,19 @@ def generate_chess_board(
     Returns:
         VectorData with paths for grid lines and hatching.
     """
-    paths: List[List[Point]] = []
+    paths: list[list[Point]] = []
     square_size = board_size / squares
 
     # Board outline
-    paths.append([
-        (0.0, 0.0),
-        (float(board_size), 0.0),
-        (float(board_size), float(board_size)),
-        (0.0, float(board_size)),
-        (0.0, 0.0),
-    ])
+    paths.append(
+        [
+            (0.0, 0.0),
+            (float(board_size), 0.0),
+            (float(board_size), float(board_size)),
+            (0.0, float(board_size)),
+            (0.0, 0.0),
+        ]
+    )
 
     # Vertical grid lines
     for i in range(1, squares):
@@ -64,9 +65,9 @@ def _generate_hatch_lines(
     y0: float,
     size: float,
     spacing: float,
-) -> List[List[Point]]:
+) -> list[list[Point]]:
     """Generate diagonal hatching lines within a square at 45 degrees."""
-    paths: List[List[Point]] = []
+    paths: list[list[Point]] = []
 
     # Generate lines from bottom-left to top-right (45 degree angle)
     # Lines are perpendicular to the direction (1, 1), so they run from
@@ -102,7 +103,7 @@ def _clip_diagonal_to_square(
     y0: float,
     size: float,
     offset: float,
-) -> List[Point]:
+) -> list[Point]:
     """Clip a 45-degree diagonal line to a square.
 
     The line satisfies: (x - x0) + (y - y0) = offset
@@ -113,7 +114,7 @@ def _clip_diagonal_to_square(
     x1 = x0 + size
     y1 = y0 + size
 
-    intersections: List[Point] = []
+    intersections: list[Point] = []
 
     # Check intersection with left edge (x = x0)
     y_at_left = y0 + offset
@@ -136,7 +137,7 @@ def _clip_diagonal_to_square(
         intersections.append((x_at_top, y1))
 
     # Remove duplicates (corners) and ensure we have exactly 2 points
-    unique: List[Point] = []
+    unique: list[Point] = []
     for pt in intersections:
         is_dup = False
         for existing in unique:
@@ -175,18 +176,24 @@ def move_to_gcode(
     square_count: int = 8,
     origin_x: float = 0.0,
     origin_y: float = 0.0,
+    discard_offset_squares: float = 1.5,
     dwell_s: float = 0.3,
     settle_after_place_s: float = 0.5,
 ) -> list[str]:
-    """Convert one UCI move to G-code for electromagnet arm: go to from, magnet on, dwell, go to to, magnet off, settle. If capture, first move captured piece to discard. Pieces assumed same height so lifted piece clears board."""
+    """Convert one UCI move to G-code for electromagnet arm: go to from, magnet on, dwell, go to to, magnet off, settle. If capture, first move captured piece to discard. Pieces assumed same height so lifted piece clears board. See README 'Chess robot: physical assumptions' for piece/clearance limits.
+
+    Magnet remains on from pickup until after place (entire move). Longest move time is travel distance at machine rapid rate. If the controller has a maximum electromagnet on-time, ensure board size and feed rate keep the longest move under that limit, or rely on firmware to handle it.
+    """
     square_size = board_size_mm / square_count
-    discard_x = origin_x - square_size * 1.5
-    discard_y = origin_y - square_size * 1.5
+    discard_x = origin_x - square_size * discard_offset_squares
+    discard_y = origin_y - square_size * discard_offset_squares
     lines: list[str] = []
     lines.append("M5 ; electromagnet off")
     from_sq = uci_move[:2]
     to_sq = uci_move[2:4]
-    fx, fy = uci_square_to_mm(from_sq[0], from_sq[1], board_size_mm, square_count, origin_x, origin_y)
+    fx, fy = uci_square_to_mm(
+        from_sq[0], from_sq[1], board_size_mm, square_count, origin_x, origin_y
+    )
     tx, ty = uci_square_to_mm(to_sq[0], to_sq[1], board_size_mm, square_count, origin_x, origin_y)
     if capture:
         lines.append(f"G0 X{tx:.2f} Y{ty:.2f} ; to capture square")
@@ -253,7 +260,7 @@ def generate_chess_demo_gcode(
             total_travel_mm += math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
             prev_x, prev_y = x, y
     # Return home
-    total_travel_mm += math.sqrt(prev_x ** 2 + prev_y ** 2)
+    total_travel_mm += math.sqrt(prev_x**2 + prev_y**2)
 
     travel_time_s = total_travel_mm / 100.0
     dwell_time_s = total_squares * (tap_dwell_s + 0.05) + 2.0
@@ -321,7 +328,7 @@ def generate_chess_demo_svg(
         parts.append(
             f'<text x="{cx:.1f}" y="{total_size - 4}" '
             f'text-anchor="middle" fill="#555" font-size="11">'
-            f'{files[col] if col < len(files) else col}</text>'
+            f"{files[col] if col < len(files) else col}</text>"
         )
 
     # Rank labels (8-1) along left
@@ -331,7 +338,7 @@ def generate_chess_demo_svg(
         parts.append(
             f'<text x="{margin - 6}" y="{cy + 4:.1f}" '
             f'text-anchor="end" fill="#555" font-size="11">'
-            f'{rank}</text>'
+            f"{rank}</text>"
         )
 
     # Numbered dots at each square center (traversal order)
@@ -362,7 +369,9 @@ def generate_chess_demo_svg(
             cy = margin + (origin_y + row * square_size + square_size / 2) * scale
             points_str.append(f"{cx:.1f},{cy:.1f}")
     parts.append(" ".join(points_str))
-    parts.append('" fill="none" stroke="rgba(220,50,50,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>')
+    parts.append(
+        '" fill="none" stroke="rgba(220,50,50,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>'
+    )
 
     parts.append("</svg>")
     return "\n".join(parts)
