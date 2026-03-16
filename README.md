@@ -56,3 +56,4 @@ Open `http://localhost:5000/` for the capture UI and `http://localhost:5000/admi
 pytest
 ```
 
+# ai_plotter
