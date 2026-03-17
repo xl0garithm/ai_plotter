@@ -34,10 +34,10 @@ export default function Home() {
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
 
   const handleStart = () => {
-    const p1 = name.trim() || "OPERATIVE";
+    const p1 = name.trim() || "Cyber Mint";
     const p2 =
       gameMode === "pvp"
-        ? opponent.trim() || "OPERATIVE 2"
+        ? opponent.trim() || "Cosmic Orchid"
         : gameMode === "aivai"
         ? "CORTEX-B"
         : "CORTEX AI";
@@ -112,24 +112,40 @@ export default function Home() {
 
           {/* Player Names */}
           <div className="space-y-3">
-            <label className="text-xs font-bold text-primary uppercase tracking-wider">
-              {gameMode === "aivai" ? "Observer ID" : "Operative ID (White)"}
-            </label>
-            <input
-              data-testid="input-player-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={gameMode === "aivai" ? "ENTER CODENAME" : "ENTER CODENAME"}
-              className="w-full bg-black/50 border border-border px-4 py-3 text-base font-mono text-white placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all uppercase"
-            />
-            {showOpponent && (
-              <input
-                data-testid="input-opponent-name"
-                value={opponent}
-                onChange={(e) => setOpponent(e.target.value)}
-                placeholder="OPPONENT CODENAME (BLACK)"
-                className="w-full bg-black/50 border border-border px-4 py-3 text-base font-mono text-white placeholder:text-muted-foreground/40 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-all uppercase"
-              />
+            {gameMode === "aivai" ? (
+              <div className="space-y-2">
+                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#00f3ff" }}>
+                  Operative ID (Cyber Mint)
+                </div>
+                <div className="text-xs text-muted-foreground">No input required — AI will use default codenames.</div>
+              </div>
+            ) : (
+              <>
+                <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "#00f3ff" }}>
+                  Operative ID (Cyber Mint)
+                </label>
+                <input
+                  data-testid="input-player-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="ENTER CODENAME"
+                  className="w-full bg-black/50 border border-border px-4 py-3 text-base font-mono text-white placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all uppercase"
+                />
+                {showOpponent && (
+                  <div className="space-y-3">
+                    <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "#ff00ff" }}>
+                      Operative ID (Cosmic Orchid)
+                    </label>
+                    <input
+                      data-testid="input-opponent-name"
+                      value={opponent}
+                      onChange={(e) => setOpponent(e.target.value)}
+                      placeholder="ENTER CODENAME"
+                      className="w-full bg-black/50 border border-border px-4 py-3 text-base font-mono text-white placeholder:text-muted-foreground/40 focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary transition-all uppercase"
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
 
