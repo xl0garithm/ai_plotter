@@ -197,6 +197,30 @@ export default function Home() {
                 <Trophy className="w-4 h-4" /> ACCESS ARCHIVES
               </span>
             </CyberButton>
+
+            <CyberButton
+              variant="secondary"
+              onClick={async () => {
+                console.log("[HOME] Testing API...");
+                // Test Express server directly
+                try {
+                  const res = await fetch("/api/test");
+                  console.log("[HOME] Express test:", res.status, await res.json());
+                } catch (e) {
+                  console.error("[HOME] Express test failed:", e);
+                }
+                // Test health via proxy
+                try {
+                  const res = await fetch("/api/health");
+                  console.log("[HOME] Health response:", res.status, await res.json());
+                } catch (e) {
+                  console.error("[HOME] Health failed:", e);
+                }
+              }}
+              className="w-full"
+            >
+              TEST API CONNECTION
+            </CyberButton>
           </div>
         </div>
       </motion.div>

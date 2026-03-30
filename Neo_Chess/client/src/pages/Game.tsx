@@ -9,10 +9,11 @@ import { CyberButton } from "@/components/CyberButton";
 import { useChessEngine } from "@/hooks/use-chess-engine";
 import { useCreateGame } from "@/hooks/use-games";
 import { useAudioManager } from "@/hooks/use-audio-manager";
+import { usePlotter } from "@/hooks/use-plotter";
 
 import { AudioEvent } from "../../public/audio/events";
 
-import { RefreshCw, LogOut, Volume2, VolumeX } from "lucide-react";
+import { RefreshCw, LogOut, Volume2, VolumeX, Loader } from "lucide-react";
 
 import type { GameMode, Difficulty } from "@/hooks/use-chess-engine";
 
@@ -105,8 +106,10 @@ export default function Game() {
 
   const { mutate: saveGame } = useCreateGame();
   const { playAudio, toggleMute, isMuted } = useAudioManager();
+  const { executeMove, isPrinting } = usePlotter();
 
   const [hasSaved, setHasSaved] = useState(false);
+  const [showPlotterStatus, setShowPlotterStatus] = useState(false);
 
   const prevGameStateRef = useRef(gameState);
 
@@ -177,6 +180,45 @@ export default function Game() {
       });
     }
   }, [gameState.winner]);
+
+  /* ----------------------------- PLOTTER INTEGRATION ---------------------------- */
+
+  const prevMoveCountRef = useRef(gameState.moveCount);
+
+  useEffect(() => {
+    console.log("[GAME] Plotter effect", {
+      currentMoveCount: gameState.moveCount,
+      prevMoveCountRef: prevMoveCountRef.current,
+      lastMove: gameState.lastMove
+    });
+    
+    // Skip if no move was made
+    if (gameState.moveCount <= prevMoveCountRef.current) {
+      console.log("[GAME] Skipping - no new move", gameState.moveCount, "<=", prevMoveCountRef.current);
+      return;
+    }
+    
+    if (!gameState.lastMove) {
+      console.log("[GAME] Skipping - no lastMove");
+      return;
+    }
+
+    console.log("[GAME] Detected move:", gameState.lastMove);
+
+    executeMove({
+      from: gameState.lastMove.from,
+      to: gameState.lastMove.to,
+      piece: gameState.lastMove.piece || "p",
+      color: gameState.lastMove.color || "w",
+      flags: gameState.lastMove.flags || "",
+      captured: gameState.lastMove.captured || null,
+      promotion: gameState.lastMove.promotion || null,
+      capture_index: 0,
+    });
+    
+    // Update ref AFTER executing move
+    prevMoveCountRef.current = gameState.moveCount;
+  }, [gameState.moveCount, executeMove]);
 
   /* ----------------------------- SAVE GAME ---------------------------- */
 
@@ -293,6 +335,35 @@ export default function Game() {
       <div className="absolute top-4 right-4 flex gap-2">
         <CyberButton onClick={toggleMute} variant="secondary">
           {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </CyberButton>
+
+        <CyberButton 
+          onClick={async () => {
+            console.log("[GAME] Testing chess move API directly...");
+            try {
+              const res = await fetch("/api/chess/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  from: "e2",
+                  to: "e4",
+                  piece: "p",
+                  color: "w",
+                  flags: "b",
+                  captured: null,
+                  promotion: null,
+                  capture_index: 0,
+                }),
+              });
+              const data = await res.json();
+              console.log("[GAME] Chess move response:", res.status, data);
+            } catch (e) {
+              console.error("[GAME] Chess move failed:", e);
+            }
+          }} 
+          variant="secondary"
+        >
+          TEST MOVE
         </CyberButton>
 
         <CyberButton onClick={() => setLocation("/")} variant="secondary">

@@ -43,6 +43,20 @@
         <p class="hero-subtitle">Preview and print a chess board pattern.</p>
       </header>
 
+      <!-- Pick & Place Demo -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Pick &amp; Place Demo</h2>
+        </div>
+        <p>Moves to a square, engages the electromagnet, carries the piece to another square, and releases.</p>
+        <div class="controls" style="margin-top: 1rem;">
+          <label>From: <input id="pp-from" type="text" value="e2" maxlength="2" style="width: 3em; text-align: center;"></label>
+          <label>To: <input id="pp-to" type="text" value="e4" maxlength="2" style="width: 3em; text-align: center;"></label>
+          <button id="pp-run-btn">Run Pick &amp; Place</button>
+        </div>
+        <div id="pp-status" class="status-box" hidden></div>
+      </section>
+
       <!-- Square Traversal Demo -->
       <section class="panel">
         <div class="panel-header">
@@ -80,6 +94,41 @@
         el.className = 'status-box ' + type;
         el.hidden = false;
       }
+
+      // --- Pick & Place demo ---
+      const ppRunBtn = document.getElementById('pp-run-btn');
+      const ppStatus = document.getElementById('pp-status');
+      const ppFrom = document.getElementById('pp-from');
+      const ppTo = document.getElementById('pp-to');
+
+      ppRunBtn.addEventListener('click', async () => {
+        ppRunBtn.disabled = true;
+        showStatus(ppStatus, 'Running pick & place...', 'loading');
+
+        try {
+          const res = await fetch('/api/chess/pick-place-demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: ppFrom.value.trim(), to: ppTo.value.trim() }),
+          });
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            const s = data.stats;
+            const msg = data.dry_run
+              ? `Dry run: ${s.from} -> ${s.to} (${s.gcode_lines} G-code lines)`
+              : `Done! Moved piece from ${s.from} to ${s.to}.`;
+            showStatus(ppStatus, msg, 'success');
+          } else {
+            showStatus(ppStatus, data.error || 'Pick & place failed.', 'error');
+          }
+        } catch (err) {
+          showStatus(ppStatus, 'Network error.', 'error');
+          console.error(err);
+        } finally {
+          ppRunBtn.disabled = false;
+        }
+      });
 
       // --- Demo section ---
       const demoPreview = document.getElementById('demo-preview-container');
