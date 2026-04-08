@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -20,6 +21,9 @@ class Config:
     ADMIN_PIN = os.environ.get("ADMIN_PIN", "1234")
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-preview-image")
+
+    # Logging - set to DEBUG for verbose output
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG").upper()
 
     # Database
     DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DB_PATH}")
@@ -48,11 +52,22 @@ class Config:
     PLOTTER_FEED_RATE = int(os.environ.get("PLOTTER_FEED_RATE", "5000"))
 
     # Chess robot
-    CHESS_BOARD_SIZE_MM = float(os.environ.get("CHESS_BOARD_SIZE_MM", "200.0"))
+    CHESS_BOARD_SIZE_MM = float(os.environ.get("CHESS_BOARD_SIZE_MM", "215.9"))
     CHESS_SQUARE_COUNT = int(os.environ.get("CHESS_SQUARE_COUNT", "8"))
+    CHESS_GAP_MM = float(os.environ.get("CHESS_GAP_MM", "2.0"))
     CHESS_ORIGIN_X_MM = float(os.environ.get("CHESS_ORIGIN_X_MM", "0.0"))
     CHESS_ORIGIN_Y_MM = float(os.environ.get("CHESS_ORIGIN_Y_MM", "0.0"))
     CHESS_TAP_DWELL_S = float(os.environ.get("CHESS_TAP_DWELL_S", "0.3"))
+
+    # Chess electromagnet control
+    CHESS_MAGNET_ON_GCODE = os.environ.get("CHESS_MAGNET_ON_GCODE", "M3 S255").replace("\\n", "\n")
+    CHESS_MAGNET_OFF_GCODE = os.environ.get("CHESS_MAGNET_OFF_GCODE", "M3 S0\nM5").replace("\\n", "\n")
+    CHESS_MAGNET_ENGAGE_DWELL_S = float(os.environ.get("CHESS_MAGNET_ENGAGE_DWELL_S", "0.3"))
+    CHESS_MAGNET_RELEASE_DWELL_S = float(os.environ.get("CHESS_MAGNET_RELEASE_DWELL_S", "0.3"))
+    CHESS_MOVE_FEED_RATE = int(os.environ.get("CHESS_MOVE_FEED_RATE", "3000"))
+    CHESS_CAPTURE_X_MM = float(os.environ.get("CHESS_CAPTURE_X_MM", "-30.0"))
+    CHESS_CAPTURE_Y_MM = float(os.environ.get("CHESS_CAPTURE_Y_MM", "0.0"))
+    CHESS_CAPTURE_SPACING_MM = float(os.environ.get("CHESS_CAPTURE_SPACING_MM", "15.0"))
 
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads

@@ -1,20 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
+
 import { Board } from "@/components/Board";
 import { CyberButton } from "@/components/CyberButton";
+
 import { useChessEngine } from "@/hooks/use-chess-engine";
 import { useCreateGame } from "@/hooks/use-games";
-import { RefreshCw, LogOut } from "lucide-react";
+import { useAudioManager } from "@/hooks/use-audio-manager";
+import { usePlotter } from "@/hooks/use-plotter";
+
+import { AudioEvent } from "../../public/audio/events";
+
+import { RefreshCw, LogOut, Volume2, VolumeX, Loader } from "lucide-react";
+
 import type { GameMode, Difficulty } from "@/hooks/use-chess-engine";
 
 const PIECE_UNICODE: Record<string, string> = {
-  p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚"
+  p: "♟",
+  r: "♜",
+  n: "♞",
+  b: "♝",
+  q: "♛",
+  k: "♚",
 };
 
 function CapturedPieces({ pieces, color }: { pieces: string[]; color: "w" | "b" }) {
   const glowClass = color === "w" ? "text-primary" : "text-secondary";
+
   return (
     <div className="flex flex-wrap gap-0.5 min-h-[20px]">
       {pieces.map((p, i) => (
@@ -33,12 +47,12 @@ function PromotionModal({
   color: "w" | "b";
   onSelect: (piece: "q" | "r" | "b" | "n") => void;
 }) {
-  const pieces: Array<{ type: "q" | "r" | "b" | "n"; label: string; symbol: string }> = [
+  const pieces = [
     { type: "q", label: "Queen", symbol: color === "w" ? "♕" : "♛" },
     { type: "r", label: "Rook", symbol: color === "w" ? "♖" : "♜" },
     { type: "b", label: "Bishop", symbol: color === "w" ? "♗" : "♝" },
     { type: "n", label: "Knight", symbol: color === "w" ? "♘" : "♞" },
-  ];
+  ] as const;
 
   const accentClass = color === "w" ? "border-primary text-primary" : "border-secondary text-secondary";
 
@@ -47,19 +61,22 @@ function PromotionModal({
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className={`glass-panel p-8 text-center border-t-2 ${color === "w" ? "border-t-primary" : "border-t-secondary"}`}
+        className={`glass-panel p-8 text-center border-t-2 ${
+          color === "w" ? "border-t-primary" : "border-t-secondary"
+        }`}
       >
         <h2 className={`text-2xl font-black mb-2 ${color === "w" ? "neon-text" : "text-secondary"}`}>
           PROMOTION
         </h2>
+
         <p className="text-muted-foreground font-mono text-sm mb-6 uppercase tracking-widest">
           Choose upgrade
         </p>
+
         <div className="grid grid-cols-4 gap-3">
           {pieces.map((p) => (
             <button
               key={p.type}
-              data-testid={`promote-${p.type}`}
               onClick={() => onSelect(p.type)}
               className={`flex flex-col items-center gap-2 p-4 border ${accentClass} hover:bg-primary/10 transition-all`}
             >
@@ -81,25 +98,134 @@ export default function Game() {
   const gameMode = (localStorage.getItem("gameMode") as GameMode) || "pvai";
   const difficulty = (localStorage.getItem("difficulty") as Difficulty) || "medium";
 
-  const { gameState, selectSquare, confirmPromotion, resetGame } = useChessEngine(gameMode, difficulty);
-  const { mutate: saveGame } = useCreateGame();
-  const [hasSaved, setHasSaved] = useState(false);
-
   const whiteName = playerName;
-  const blackName = gameMode === "pvp" ? opponentName : gameMode === "aivai" ? "CORTEX-A" : "CORTEX AI";
-  const whiteLabel = gameMode === "aivai" ? "CORTEX-W" : playerName;
+  const blackName = gameMode === "pvp" ? opponentName : gameMode === "aivai" ? "CORTEX-A" : "Storm AI";
 
-  // Victory confetti
+  const { gameState, selectSquare, confirmPromotion, resetGame } =
+    useChessEngine(gameMode, difficulty, whiteName, blackName);
+
+  const { mutate: saveGame } = useCreateGame();
+  const { playAudio, toggleMute, isMuted } = useAudioManager();
+  const { executeMove, isPrinting } = usePlotter();
+
+  const [hasSaved, setHasSaved] = useState(false);
+  const [showPlotterStatus, setShowPlotterStatus] = useState(false);
+
+  const prevGameStateRef = useRef(gameState);
+
+  const isWhiteTurn = gameState.turn === "w";
+
+  /* ----------------------------- GAME START AUDIO ---------------------------- */
+
+  useEffect(() => {
+    if (gameMode === "aivai") return;
+    playAudio(AudioEvent.GAME_START);
+  }, [gameMode, playAudio]);
+
+  /* ----------------------------- AI MOVE AUDIO ---------------------------- */
+
+  useEffect(() => {
+    if (gameMode === "aivai") return;
+
+    const prev = prevGameStateRef.current;
+
+    if (
+      prev &&
+      prev.moveCount !== gameState.moveCount &&
+      gameMode !== "pvp" &&
+      gameState.turn === "w"
+    ) {
+      let audioEvent;
+
+      if (gameState.capturedByWhite.length > prev.capturedByWhite.length) {
+        audioEvent = AudioEvent.PLAYER_KING;
+      } else if (gameState.isCheck && !prev.isCheck) {
+        audioEvent = AudioEvent.AI_KING;
+      } else if (gameState.capturedByBlack.length > prev.capturedByBlack.length) {
+        audioEvent =
+          Math.random() < 0.5
+            ? AudioEvent.AI_STRONG_MOVE
+            : AudioEvent.AI_MOVE;
+      } else if (Math.random() < 0.15) {
+        audioEvent = AudioEvent.AI_TAUNT;
+      } else {
+        audioEvent = AudioEvent.PLAYER_TURN;
+      }
+
+      setTimeout(() => {
+        playAudio(audioEvent);
+      }, 350);
+    }
+  }, [
+    gameState.moveCount,
+    gameState.turn,
+    gameState.isCheck,
+    gameState.capturedByWhite.length,
+    gameState.capturedByBlack.length,
+  ]);
+
+  useEffect(() => {
+    prevGameStateRef.current = gameState;
+  }, [gameState]);
+
+  /* ----------------------------- CONFETTI ---------------------------- */
+
   useEffect(() => {
     if (gameState.winner === "w" && gameMode !== "aivai") {
-      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ["#00f3ff", "#ffffff"] });
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ["#00f3ff", "#ffffff"],
+      });
     }
-  }, [gameState.winner, gameMode]);
+  }, [gameState.winner]);
 
-  // Auto-save on game end
+  /* ----------------------------- PLOTTER INTEGRATION ---------------------------- */
+
+  const prevMoveCountRef = useRef(gameState.moveCount);
+
+  useEffect(() => {
+    console.log("[GAME] Plotter effect", {
+      currentMoveCount: gameState.moveCount,
+      prevMoveCountRef: prevMoveCountRef.current,
+      lastMove: gameState.lastMove
+    });
+    
+    // Skip if no move was made
+    if (gameState.moveCount <= prevMoveCountRef.current) {
+      console.log("[GAME] Skipping - no new move", gameState.moveCount, "<=", prevMoveCountRef.current);
+      return;
+    }
+    
+    if (!gameState.lastMove) {
+      console.log("[GAME] Skipping - no lastMove");
+      return;
+    }
+
+    console.log("[GAME] Detected move:", gameState.lastMove);
+
+    executeMove({
+      from: gameState.lastMove.from,
+      to: gameState.lastMove.to,
+      piece: gameState.lastMove.piece || "p",
+      color: gameState.lastMove.color || "w",
+      flags: gameState.lastMove.flags || "",
+      captured: gameState.lastMove.captured || null,
+      promotion: gameState.lastMove.promotion || null,
+      capture_index: 0,
+    });
+    
+    // Update ref AFTER executing move
+    prevMoveCountRef.current = gameState.moveCount;
+  }, [gameState.moveCount, executeMove]);
+
+  /* ----------------------------- SAVE GAME ---------------------------- */
+
   useEffect(() => {
     if (gameState.isGameOver && !hasSaved) {
       let winnerLabel = "draw";
+
       if (gameState.winner === "w") winnerLabel = "white";
       else if (gameState.winner === "b") winnerLabel = "black";
 
@@ -111,172 +237,173 @@ export default function Game() {
         difficulty: gameMode === "pvp" ? "pvp" : difficulty,
         moves: gameState.moveCount,
       });
+
       setHasSaved(true);
     }
-  }, [gameState.isGameOver, hasSaved, saveGame, whiteName, blackName, gameMode, difficulty, gameState.winner, gameState.moveCount]);
+  }, [gameState.isGameOver]);
+
+  /* ----------------------------- GAME OVER AUDIO ---------------------------- */
+
+  useEffect(() => {
+    if (gameMode === "aivai") return;
+
+    if (gameState.isGameOver && gameState.winner) {
+      if (gameState.winner === "w") {
+        playAudio(AudioEvent.PLAYER_VICTORY);
+      } else if (gameMode !== "pvp") {
+        playAudio(AudioEvent.AI_VICTORY);
+      }
+    }
+  }, [gameState.isGameOver, gameState.winner, gameMode, playAudio]);
 
   const handleRestart = () => {
     resetGame();
     setHasSaved(false);
   };
 
-  const isWhiteTurn = gameState.turn === "w";
-  const isAiThinking =
-    (gameMode === "pvai" && gameState.turn === "b" && !gameState.isGameOver) ||
-    (gameMode === "aivai" && !gameState.isGameOver);
-
-  const turnLabel = gameMode === "aivai"
-    ? (isWhiteTurn ? "CORTEX-W Processing" : "CORTEX-B Processing")
-    : gameMode === "pvp"
-    ? (isWhiteTurn ? `${whiteName}'s Turn` : `${blackName}'s Turn`)
-    : (isWhiteTurn ? "Your Turn" : "AI Processing...");
-
-  function getWinnerMessage() {
-    if (!gameState.isGameOver) return "";
-    if (gameState.isDraw) return "DRAW";
-    if (gameState.winner === "w") {
-      if (gameMode === "pvai") return "MISSION COMPLETE";
-      if (gameMode === "pvp") return `${whiteName} WINS`;
-      return "CORTEX-W WINS";
-    }
-    if (gameMode === "pvai") return "SYSTEM FAILURE";
-    if (gameMode === "pvp") return `${blackName} WINS`;
-    return "CORTEX-B WINS";
-  }
-
-  function getWinnerSubtext() {
-    if (gameState.isDraw) return "Stalemate or insufficient material";
-    if (gameState.winner === "w") return gameMode === "pvai" ? "Enemy AI neutralized" : "Checkmate delivered";
-    return gameMode === "pvai" ? "Tactical superiority lost" : "Checkmate delivered";
-  }
+  const turnLabel =
+    gameMode === "pvp"
+      ? isWhiteTurn
+        ? `${whiteName}'s Turn`
+        : `${blackName}'s Turn`
+      : isWhiteTurn
+      ? "Your Turn"
+      : "AI Processing...";
 
   const winnerIsPlayer = gameState.winner === "w" && gameMode !== "aivai";
+  const isGameActive = !gameState.isGameOver;
+  const whiteIsActive = isGameActive && gameState.turn === "w";
+  const blackIsActive = isGameActive && gameState.turn === "b";
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-3 relative overflow-hidden bg-background">
-      {/* HUD Header */}
-      <header className="fixed top-0 left-0 right-0 p-3 md:p-5 flex flex-col items-center z-30 pointer-events-none">
-        <div className="absolute top-3 right-3 md:top-5 md:right-5 pointer-events-auto">
-          <CyberButton
-            onClick={() => setLocation("/")}
-            variant="secondary"
-            className="opacity-70 hover:opacity-100 transition-opacity"
-            data-testid="button-abort"
-          >
-            <LogOut className="w-4 h-4 mr-1" /> ABORT
-          </CyberButton>
-        </div>
 
-        <div className="text-center mb-3 pointer-events-none">
-          <h1 className="text-lg md:text-2xl font-black neon-text tracking-widest font-orbitron opacity-70">
-            NEO<span className="text-white">CHESS</span>
-          </h1>
-        </div>
+      {/* TITLE */}
+      <h1 className="mb-2 select-none text-[2.5rem] leading-none font-black tracking-[0.22em] md:text-5xl">
+        <span className="text-primary drop-shadow-[0_0_6px_rgba(0,243,255,0.95)] [text-shadow:0_0_10px_rgba(0,243,255,0.95),0_0_26px_rgba(0,243,255,0.6)]">
+          NEO
+        </span>
+        <span className="ml-2 bg-gradient-to-b from-zinc-100 via-slate-300 to-zinc-500 bg-clip-text text-transparent drop-shadow-[0_2px_0_rgba(255,255,255,0.35)] [text-shadow:0_1px_0_rgba(255,255,255,0.5),0_8px_18px_rgba(0,0,0,0.75)]">
+          CHESS
+        </span>
+      </h1>
 
-        {/* Score bar */}
-        <div className="flex items-center gap-8 pointer-events-auto bg-black/40 backdrop-blur-md px-6 py-3 border border-white/10 rounded-full shadow-[0_0_30px_rgba(0,243,255,0.08)]">
-          {/* White side */}
-          <div className="flex items-center gap-3">
-            <div className={`h-9 w-9 border-2 border-primary bg-primary/10 rounded-full flex items-center justify-center text-primary text-xs font-bold shadow-[0_0_15px_rgba(0,243,255,0.3)] ${isWhiteTurn && !gameState.isGameOver ? "ring-2 ring-primary ring-offset-1 ring-offset-black" : ""}`}>
-              ♔
-            </div>
-            <div>
-              <div className="text-primary text-sm font-bold font-orbitron leading-none">{whiteLabel}</div>
-              <CapturedPieces pieces={gameState.capturedByWhite} color="w" />
-            </div>
+      {/* PLAYER NAMES */}
+      <div className="w-full max-w-xl mb-2 rounded-2xl border border-white/10 bg-black/70 px-4 py-3 shadow-[0_0_30px_rgba(0,0,0,0.55)] backdrop-blur-sm">
+        <div className="flex items-center justify-between gap-3 text-sm font-mono">
+          <div className="flex items-center gap-2">
+            <span
+              className={`h-2.5 w-2.5 rounded-full transition-all ${
+                whiteIsActive ? "bg-primary animate-pulse shadow-[0_0_14px_rgba(0,243,255,0.95)]" : "bg-primary/30"
+              }`}
+            />
+            <span className="font-black text-primary drop-shadow-[0_0_8px_rgba(0,243,255,0.9)]">
+              {whiteName}
+            </span>
+            {whiteIsActive && (
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-bold tracking-widest text-primary">
+                TURN
+              </span>
+            )}
           </div>
 
-          <div className="text-muted-foreground font-mono text-xs px-3 text-center">
-            <div className="text-white font-bold">{Math.ceil(gameState.moveCount / 2)}</div>
-            <div className="text-[9px] uppercase tracking-widest">moves</div>
-          </div>
-
-          {/* Black side */}
-          <div className="flex items-center gap-3 flex-row-reverse">
-            <div className={`h-9 w-9 border-2 border-secondary bg-secondary/10 rounded-full flex items-center justify-center text-secondary text-xs font-bold shadow-[0_0_15px_rgba(255,0,255,0.3)] ${!isWhiteTurn && !gameState.isGameOver ? "ring-2 ring-secondary ring-offset-1 ring-offset-black" : ""}`}>
-              ♚
-            </div>
-            <div className="text-right">
-              <div className="text-secondary text-sm font-bold font-orbitron leading-none">{blackName}</div>
-              <CapturedPieces pieces={gameState.capturedByBlack} color="b" />
-            </div>
+          <div className="flex items-center gap-2">
+            {blackIsActive && (
+              <span className="rounded-full border border-secondary/40 bg-secondary/10 px-2 py-0.5 text-[10px] font-bold tracking-widest text-secondary">
+                TURN
+              </span>
+            )}
+            <span className="font-black text-secondary drop-shadow-[0_0_8px_rgba(255,58,141,0.9)]">
+              {blackName}
+            </span>
+            <span
+              className={`h-2.5 w-2.5 rounded-full transition-all ${
+                blackIsActive ? "bg-secondary animate-pulse shadow-[0_0_14px_rgba(255,58,141,0.95)]" : "bg-secondary/30"
+              }`}
+            />
           </div>
         </div>
-      </header>
-
-      {/* Main board area */}
-      <main className="w-full max-w-6xl z-10 pt-28 flex flex-col items-center gap-4">
-        <Board gameState={gameState} onSquareClick={selectSquare} />
-
-        {/* Turn indicator */}
-        <div data-testid="turn-indicator" className="flex items-center gap-3">
-          <div className={`px-5 py-2 rounded-full border font-mono text-sm uppercase tracking-widest transition-all duration-300 ${
-            isAiThinking
-              ? "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)] animate-pulse"
-              : isWhiteTurn
-              ? "bg-primary/20 border-primary text-primary shadow-[0_0_20px_rgba(0,243,255,0.4)]"
-              : "bg-secondary/20 border-secondary text-secondary shadow-[0_0_20px_rgba(255,0,255,0.4)]"
-          }`}>
-            {turnLabel}
-          </div>
-          {gameState.isCheck && (
-            <div className="px-4 py-2 rounded-full border border-destructive text-destructive font-mono text-sm uppercase tracking-widest animate-pulse">
-              ⚡ CHECK
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* Ambient glow */}
-      <div className="absolute inset-0 pointer-events-none opacity-20">
-        <div className="absolute top-[10%] left-[5%] w-64 h-64 bg-primary/10 rounded-full blur-[100px]" />
-        <div className="absolute bottom-[10%] right-[5%] w-64 h-64 bg-secondary/10 rounded-full blur-[100px]" />
       </div>
 
-      {/* Promotion Modal */}
+      {/* CAPTURED PIECES */}
+      <div className="flex justify-between w-full max-w-xl mb-3">
+        <CapturedPieces pieces={gameState.capturedByWhite} color="w" />
+        <CapturedPieces pieces={gameState.capturedByBlack} color="b" />
+      </div>
+
+      {/* CONTROLS */}
+      <div className="absolute top-4 right-4 flex gap-2">
+        <CyberButton onClick={toggleMute} variant="secondary">
+          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </CyberButton>
+
+        <CyberButton 
+          onClick={async () => {
+            console.log("[GAME] Testing chess move API directly...");
+            try {
+              const res = await fetch("/api/chess/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  from: "e2",
+                  to: "e4",
+                  piece: "p",
+                  color: "w",
+                  flags: "b",
+                  captured: null,
+                  promotion: null,
+                  capture_index: 0,
+                }),
+              });
+              const data = await res.json();
+              console.log("[GAME] Chess move response:", res.status, data);
+            } catch (e) {
+              console.error("[GAME] Chess move failed:", e);
+            }
+          }} 
+          variant="secondary"
+        >
+          TEST MOVE
+        </CyberButton>
+
+        <CyberButton onClick={() => setLocation("/")} variant="secondary">
+          <LogOut size={16} />
+        </CyberButton>
+      </div>
+
+      {/* BOARD */}
+      <Board gameState={gameState} onSquareClick={selectSquare} />
+
+      {/* TURN LABEL */}
+      <div className="mt-4 text-sm font-mono tracking-widest text-muted-foreground">
+        {turnLabel}
+      </div>
+
       {gameState.promotionPending && (
-        <PromotionModal
-          color={gameState.turn}
-          onSelect={confirmPromotion}
-        />
+        <PromotionModal color={gameState.turn} onSelect={confirmPromotion} />
       )}
 
-      {/* Game Over Modal */}
+      {/* GAME OVER MODAL */}
       <AnimatePresence>
         {gameState.isGameOver && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 flex items-center justify-center bg-black/85 backdrop-blur-sm">
             <motion.div
               initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.85, opacity: 0 }}
-              className={`glass-panel max-w-md w-full p-8 text-center border-t-2 ${winnerIsPlayer ? "border-t-primary" : gameState.isDraw ? "border-t-yellow-500" : "border-t-destructive"}`}
+              className="glass-panel max-w-md w-full p-8 text-center"
             >
-              <h2 className={`text-4xl md:text-5xl font-black mb-2 ${
-                gameState.isDraw
-                  ? "text-yellow-400 drop-shadow-[0_0_15px_rgba(255,204,0,0.8)]"
-                  : winnerIsPlayer
-                  ? "text-primary drop-shadow-[0_0_15px_rgba(0,243,255,0.8)]"
-                  : "text-destructive drop-shadow-[0_0_15px_rgba(255,0,0,0.8)]"
-              }`}
-              data-testid="game-over-title"
-              >
-                {getWinnerMessage()}
+              <h2 className="text-4xl font-black mb-4">
+                {winnerIsPlayer ? "MISSION COMPLETE" : "SYSTEM FAILURE"}
               </h2>
 
-              <p className="text-muted-foreground font-mono mb-8 uppercase tracking-widest text-sm">
-                {getWinnerSubtext()} · {Math.ceil(gameState.moveCount / 2)} moves
-              </p>
-
               <div className="flex flex-col gap-3">
-                <CyberButton onClick={handleRestart} className="w-full" data-testid="button-restart">
-                  <span className="flex items-center justify-center gap-2">
-                    <RefreshCw className="w-4 h-4" /> REBOOT MATCH
-                  </span>
+                <CyberButton onClick={handleRestart}>
+                  <RefreshCw className="w-4 h-4" /> REBOOT MATCH
                 </CyberButton>
-                <CyberButton onClick={() => setLocation("/")} variant="secondary" className="w-full" data-testid="button-exit">
-                  <span className="flex items-center justify-center gap-2">
-                    <LogOut className="w-4 h-4" /> ABORT MISSION
-                  </span>
+
+                <CyberButton onClick={() => setLocation("/")} variant="secondary">
+                  <LogOut className="w-4 h-4" /> EXIT
                 </CyberButton>
               </div>
             </motion.div>

@@ -1,13 +1,31 @@
-"""Chess board vector generation for plotter."""
+"""Chess board vector generation and move G-code for plotter."""
 
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+import re
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 from services.vectorizer import VectorData
 
 Point = Tuple[float, float]
+
+FILES = "abcdefgh"
+
+
+@dataclass
+class ChessMoveData:
+    """Parsed chess move from chess.js verbose format."""
+
+    from_sq: str  # e.g. "e2"
+    to_sq: str  # e.g. "e4"
+    piece: str  # p, n, b, r, q, k
+    color: str  # w or b
+    captured: Optional[str]  # piece type captured, or None
+    flags: str  # chess.js flags: n=normal, b=pawn push, e=en passant, c=capture, k=kingside castle, q=queenside castle
+    promotion: Optional[str]  # piece type promoted to, or None
+    capture_index: int = 0  # Nth captured piece (for discard positioning)
 
 
 def generate_chess_board(
@@ -151,52 +169,328 @@ def _clip_diagonal_to_square(
     return []
 
 
-def generate_chess_demo_gcode(
-    board_size_mm: float = 200.0,
+def _square_center_mm(
+    row: int,
+    col: int,
+    square_size: float,
+    gap_mm: float,
+    origin_x: float,
+    origin_y: float,
+) -> tuple[float, float]:
+    """Return the (x, y) center of a board square in mm.
+
+    Layout per axis: gap | square | gap | square | ... | square | gap
+    So square i starts at: gap + i * (square_size + gap).
+    """
+    x = origin_x + gap_mm + col * (square_size + gap_mm) + square_size / 2
+    y = origin_y + gap_mm + row * (square_size + gap_mm) + square_size / 2
+    return x, y
+
+
+def algebraic_to_mm(
+    square: str,
+    square_size: float,
+    gap_mm: float,
+    origin_x: float,
+    origin_y: float,
     square_count: int = 8,
+) -> tuple[float, float]:
+    """Convert algebraic notation (e.g. 'e4') to (x_mm, y_mm) center coordinates."""
+    file_idx = FILES.index(square[0])  # col: a=0, h=7
+    rank = int(square[1])  # 1-8
+    row = square_count - rank  # row 0 = rank 8 (top)
+    return _square_center_mm(row, file_idx, square_size, gap_mm, origin_x, origin_y)
+
+
+def _magnet_on_gcode(cmd: str, dwell: float) -> list[str]:
+    """G-code lines to engage the electromagnet."""
+    lines = []
+    for part in cmd.split("\n"):
+        part = part.strip()
+        if part:
+            lines.append(f"{part} ; magnet ON")
+    lines.append(f"G4 P{dwell:.2f} ; engage dwell")
+    return lines
+
+
+def _magnet_off_gcode(cmd: str, dwell: float) -> list[str]:
+    """G-code lines to disengage the electromagnet."""
+    lines = []
+    for part in cmd.split("\n"):
+        part = part.strip()
+        if part:
+            lines.append(f"{part} ; magnet OFF")
+    lines.append(f"G4 P{dwell:.2f} ; release dwell")
+    return lines
+
+
+def _pick_piece(
+    x: float,
+    y: float,
+    magnet_on_cmd: str,
+    engage_dwell: float,
+    comment: str = "",
+) -> list[str]:
+    """G-code to move to a position and pick up a piece with the magnet."""
+    label = f" ; pick {comment}" if comment else ""
+    lines = [f"G0 X{x:.2f} Y{y:.2f}{label}"]
+    lines.extend(_magnet_on_gcode(magnet_on_cmd, engage_dwell))
+    return lines
+
+
+def _place_piece(
+    x: float,
+    y: float,
+    feed_rate: int,
+    magnet_off_cmd: str,
+    release_dwell: float,
+    comment: str = "",
+) -> list[str]:
+    """G-code to carry a piece to a position (G1) and release it."""
+    label = f" ; place {comment}" if comment else ""
+    lines = [
+        f"G1 X{x:.2f} Y{y:.2f} F{feed_rate}{label}",
+        "G4 P0 ; sync — drain motion buffer before magnet off",
+    ]
+    lines.extend(_magnet_off_gcode(magnet_off_cmd, release_dwell))
+    return lines
+
+
+def _capture_discard_position(
+    index: int,
+    capture_x: float,
+    capture_y: float,
+    capture_spacing: float,
+) -> tuple[float, float]:
+    """Return the (x, y) position for the Nth captured/discarded piece."""
+    return (capture_x, capture_y + index * capture_spacing)
+
+
+def _pick_and_carry(
+    from_xy: tuple[float, float],
+    to_xy: tuple[float, float],
+    magnet_on_cmd: str,
+    engage_dwell: float,
+    move_feed_rate: int,
+    comment: str = "",
+) -> list[str]:
+    """Generate one pick-and-carry phase: rapid to source, magnet on, carry to target.
+
+    The caller must hardware-reset after sending these lines to kill the magnet.
+    """
+    label = f" ; {comment}" if comment else ""
+    lines = [
+        f"G0 X{from_xy[0]:.2f} Y{from_xy[1]:.2f}{label}",
+    ]
+    lines.extend(_magnet_on_gcode(magnet_on_cmd, engage_dwell))
+    lines.append(f"G1 X{to_xy[0]:.2f} Y{to_xy[1]:.2f} F{move_feed_rate}")
+    lines.append("G4 P0 ; sync — drain motion buffer")
+    return lines
+
+
+def generate_move_gcode(
+    move: ChessMoveData,
+    board_size_mm: float = 215.9,
+    square_count: int = 8,
+    gap_mm: float = 2.0,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    magnet_on_cmd: str = "M3 S255",
+    engage_dwell: float = 0.3,
+    move_feed_rate: int = 3000,
+    capture_x: float = -30.0,
+    capture_y: float = 0.0,
+    capture_spacing: float = 15.0,
+) -> tuple[list[list[str]], dict]:
+    """Generate G-code phases for a single chess move.
+
+    Each phase is a pick-and-carry that ends needing a hardware reset to
+    de-energize the electromagnet. The caller must reset between phases.
+
+    Move types:
+    - Normal: 1 phase (pick piece, carry to target)
+    - Capture: 2 phases (discard captured piece, then move piece)
+    - En passant: 2 phases (discard en-passant pawn, then move piece)
+    - Castling: 2 phases (move king, then move rook)
+
+    Returns:
+        Tuple of (list_of_phases, stats_dict).
+        Each phase is a list of G-code lines.
+    """
+    square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
+    phases: list[list[str]] = []
+
+    def sq_mm(sq: str) -> tuple[float, float]:
+        return algebraic_to_mm(sq, square_size, gap_mm, origin_x, origin_y, square_count)
+
+    from_xy = sq_mm(move.from_sq)
+    to_xy = sq_mm(move.to_sq)
+
+    # --- Handle capture: discard captured piece first ---
+    if "e" in move.flags:
+        # En passant: captured pawn is at target_file + source_rank
+        ep_square = f"{move.to_sq[0]}{move.from_sq[1]}"
+        ep_xy = sq_mm(ep_square)
+        discard_xy = _capture_discard_position(
+            move.capture_index, capture_x, capture_y, capture_spacing
+        )
+        phase = [f"; En passant: discard pawn at {ep_square}"]
+        phase.extend(_pick_and_carry(ep_xy, discard_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"discard {ep_square}"))
+        phases.append(phase)
+    elif "c" in move.flags:
+        discard_xy = _capture_discard_position(
+            move.capture_index, capture_x, capture_y, capture_spacing
+        )
+        phase = [f"; Capture: discard piece at {move.to_sq}"]
+        phase.extend(_pick_and_carry(to_xy, discard_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"discard {move.to_sq}"))
+        phases.append(phase)
+
+    # --- Move the piece ---
+    phase = [f"; Move {move.piece} {move.from_sq} -> {move.to_sq}"]
+    phase.extend(_pick_and_carry(from_xy, to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"{move.piece} {move.from_sq}->{move.to_sq}"))
+    phases.append(phase)
+
+    # --- Handle castling: also move the rook ---
+    if "k" in move.flags:
+        rank = move.from_sq[1]
+        rook_from_xy = sq_mm(f"h{rank}")
+        rook_to_xy = sq_mm(f"f{rank}")
+        phase = [f"; Kingside castle: rook h{rank} -> f{rank}"]
+        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"rook h{rank}->f{rank}"))
+        phases.append(phase)
+    elif "q" in move.flags:
+        rank = move.from_sq[1]
+        rook_from_xy = sq_mm(f"a{rank}")
+        rook_to_xy = sq_mm(f"d{rank}")
+        phase = [f"; Queenside castle: rook a{rank} -> d{rank}"]
+        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"rook a{rank}->d{rank}"))
+        phases.append(phase)
+
+    total_lines = sum(len(p) for p in phases)
+    stats = {
+        "from": move.from_sq,
+        "to": move.to_sq,
+        "piece": move.piece,
+        "flags": move.flags,
+        "captured": move.captured,
+        "phases": len(phases),
+        "gcode_lines": total_lines,
+    }
+
+    return phases, stats
+
+
+def _validate_square(sq: str) -> bool:
+    """Check that a square string is valid algebraic notation."""
+    return bool(re.match(r"^[a-h][1-8]$", sq))
+
+
+def generate_pick_place_demo_gcode(
+    from_sq: str = "e2",
+    to_sq: str = "e4",
+    board_size_mm: float = 215.9,
+    square_count: int = 8,
+    gap_mm: float = 2.0,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    magnet_on_cmd: str = "M3 S255",
+    engage_dwell: float = 0.3,
+    move_feed_rate: int = 3000,
+) -> tuple[list[str], list[str], dict]:
+    """Generate a simple pick-and-place demo in two phases.
+
+    Phase 1 (carry): rapid to source, magnet on, carry to target.
+    Phase 2 (return): after a hardware reset kills the magnet, return home.
+
+    The caller must reset the Arduino between phases to de-energize the magnet.
+
+    Returns:
+        Tuple of (carry_lines, return_lines, stats_dict).
+    """
+    square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
+
+    from_xy = algebraic_to_mm(from_sq, square_size, gap_mm, origin_x, origin_y, square_count)
+    to_xy = algebraic_to_mm(to_sq, square_size, gap_mm, origin_x, origin_y, square_count)
+
+    # Phase 1: pick up and carry (magnet stays on)
+    carry: list[str] = [
+        f"; Pick-and-place demo: {from_sq} -> {to_sq}",
+        f"G0 X{from_xy[0]:.2f} Y{from_xy[1]:.2f} ; rapid to {from_sq}",
+    ]
+    carry.extend(_magnet_on_gcode(magnet_on_cmd, engage_dwell))
+    carry.append(f"G1 X{to_xy[0]:.2f} Y{to_xy[1]:.2f} F{move_feed_rate} ; carry to {to_sq}")
+    carry.append("G4 P0 ; sync — drain motion buffer")
+
+    # Phase 2: after reset kills the magnet, go home
+    ret: list[str] = [
+        "G0 X0.00 Y0.00 ; return home",
+    ]
+
+    stats = {
+        "from": from_sq,
+        "to": to_sq,
+        "from_mm": [round(from_xy[0], 2), round(from_xy[1], 2)],
+        "to_mm": [round(to_xy[0], 2), round(to_xy[1], 2)],
+        "gcode_lines": len(carry) + len(ret),
+    }
+
+    return carry, ret, stats
+
+
+def generate_chess_demo_gcode(
+    board_size_mm: float = 215.9,
+    square_count: int = 8,
+    gap_mm: float = 2.0,
     origin_x: float = 0.0,
     origin_y: float = 0.0,
     tap_dwell_s: float = 0.3,
+    magnet_on_cmd: str = "M3 S255",
+    magnet_off_cmd: str = "M3 S0\nM5",
 ) -> tuple[list[str], dict]:
     """Generate G-code that moves to every square center and taps.
 
     Traversal order: row by row top-to-bottom (rank 8→1), left-to-right (a→h).
 
+    Board layout per axis: gap | sq | gap | sq | ... | sq | gap
+    square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
+
     Returns:
         Tuple of (gcode_lines, stats_dict).
     """
-    square_size = board_size_mm / square_count
+    square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
     total_squares = square_count * square_count
     lines: list[str] = []
 
-    lines.append(f"; Chess demo: {total_squares} squares, {square_size:.1f}mm each")
-    lines.append("M5 ; ensure head up")
+    lines.append(f"; Chess demo: {total_squares} squares, {square_size:.2f}mm each, {gap_mm:.1f}mm gap")
+    # Ensure magnet off at start
+    for part in magnet_off_cmd.split("\n"):
+        part = part.strip()
+        if part:
+            lines.append(f"{part} ; ensure magnet off")
 
-    files = "abcdefgh"
     for row in range(square_count):
         rank = square_count - row  # row 0 = rank 8
         for col in range(square_count):
-            file_letter = files[col] if col < len(files) else str(col)
-            x = origin_x + col * square_size + square_size / 2
-            y = origin_y + row * square_size + square_size / 2
+            file_letter = FILES[col] if col < len(FILES) else str(col)
+            x, y = _square_center_mm(row, col, square_size, gap_mm, origin_x, origin_y)
 
             lines.append(f"G0 X{x:.2f} Y{y:.2f} ; {file_letter}{rank}")
-            lines.append("M3 S90 ; head down")
-            lines.append(f"G4 P{tap_dwell_s:.2f} ; tap dwell")
-            lines.append("M5 ; head up")
-            lines.append("G4 P0.05 ; settle")
+            lines.extend(_magnet_on_gcode(magnet_on_cmd, tap_dwell_s))
+            lines.extend(_magnet_off_gcode(magnet_off_cmd, 0.05))
 
     lines.append("G0 X0.00 Y0.00 ; return home")
     lines.append("G4 P2.0 ; final settle")
-    lines.append("M5 ; final head up")
+    for part in magnet_off_cmd.split("\n"):
+        part = part.strip()
+        if part:
+            lines.append(f"{part} ; final magnet off")
 
     # Estimate time: rapid moves ~100mm/s, plus dwell per square
     total_travel_mm = 0.0
     prev_x, prev_y = 0.0, 0.0
     for row in range(square_count):
         for col in range(square_count):
-            x = origin_x + col * square_size + square_size / 2
-            y = origin_y + row * square_size + square_size / 2
+            x, y = _square_center_mm(row, col, square_size, gap_mm, origin_x, origin_y)
             total_travel_mm += math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
             prev_x, prev_y = x, y
     # Return home
@@ -209,6 +503,7 @@ def generate_chess_demo_gcode(
     stats = {
         "total_squares": total_squares,
         "square_size_mm": round(square_size, 2),
+        "gap_mm": gap_mm,
         "estimated_seconds": round(estimated_time_s, 1),
         "gcode_lines": len(lines),
     }
@@ -217,8 +512,9 @@ def generate_chess_demo_gcode(
 
 
 def generate_chess_demo_svg(
-    board_size_mm: float = 200.0,
+    board_size_mm: float = 215.9,
     square_count: int = 8,
+    gap_mm: float = 2.0,
     origin_x: float = 0.0,
     origin_y: float = 0.0,
     svg_size: int = 500,
@@ -226,8 +522,9 @@ def generate_chess_demo_svg(
     """Generate an SVG preview of the demo traversal.
 
     Shows the board grid with numbered dots at each square center.
+    Gaps between squares are rendered as the board background.
     """
-    square_size = board_size_mm / square_count
+    square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
     # Scale from mm to SVG pixels
     scale = svg_size / board_size_mm
     margin = 20  # px padding around board
@@ -242,29 +539,32 @@ def generate_chess_demo_svg(
         f'<rect x="0" y="0" width="{total_size}" height="{total_size}" fill="#f5f5f0"/>',
     ]
 
-    # Draw alternating light/dark squares
-    for row in range(square_count):
-        for col in range(square_count):
-            sx = margin + col * square_size * scale
-            sy = margin + row * square_size * scale
-            fill = "#d4a574" if (row + col) % 2 == 1 else "#f0dab5"
-            parts.append(
-                f'<rect x="{sx:.1f}" y="{sy:.1f}" '
-                f'width="{square_size * scale:.1f}" height="{square_size * scale:.1f}" '
-                f'fill="{fill}" stroke="#8b7355" stroke-width="0.5"/>'
-            )
-
-    # Board outline
+    # Board background (visible in the gaps)
     parts.append(
         f'<rect x="{margin}" y="{margin}" '
         f'width="{svg_size}" height="{svg_size}" '
-        f'fill="none" stroke="#333" stroke-width="2"/>'
+        f'fill="#5c3d2e" stroke="#333" stroke-width="2"/>'
     )
+
+    # Draw alternating light/dark squares with gap offsets
+    sq_px = square_size * scale
+    gap_px = gap_mm * scale
+    for row in range(square_count):
+        for col in range(square_count):
+            sx = margin + (gap_mm + col * (square_size + gap_mm)) * scale
+            sy = margin + (gap_mm + row * (square_size + gap_mm)) * scale
+            fill = "#d4a574" if (row + col) % 2 == 1 else "#f0dab5"
+            parts.append(
+                f'<rect x="{sx:.1f}" y="{sy:.1f}" '
+                f'width="{sq_px:.1f}" height="{sq_px:.1f}" '
+                f'fill="{fill}"/>'
+            )
 
     # File labels (a-h) along bottom
     files = "abcdefgh"
     for col in range(square_count):
-        cx = margin + col * square_size * scale + square_size * scale / 2
+        cx_mm = gap_mm + col * (square_size + gap_mm) + square_size / 2
+        cx = margin + cx_mm * scale
         parts.append(
             f'<text x="{cx:.1f}" y="{total_size - 4}" '
             f'text-anchor="middle" fill="#555" font-size="11">'
@@ -273,7 +573,8 @@ def generate_chess_demo_svg(
 
     # Rank labels (8-1) along left
     for row in range(square_count):
-        cy = margin + row * square_size * scale + square_size * scale / 2
+        cy_mm = gap_mm + row * (square_size + gap_mm) + square_size / 2
+        cy = margin + cy_mm * scale
         rank = square_count - row
         parts.append(
             f'<text x="{margin - 6}" y="{cy + 4:.1f}" '
@@ -288,8 +589,9 @@ def generate_chess_demo_svg(
     for row in range(square_count):
         for col in range(square_count):
             num += 1
-            cx = margin + (origin_x + col * square_size + square_size / 2) * scale
-            cy = margin + (origin_y + row * square_size + square_size / 2) * scale
+            x_mm, y_mm = _square_center_mm(row, col, square_size, gap_mm, origin_x, origin_y)
+            cx = margin + x_mm * scale
+            cy = margin + y_mm * scale
             parts.append(
                 f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{dot_radius:.1f}" '
                 f'fill="rgba(220,50,50,0.85)" stroke="#fff" stroke-width="1"/>'
@@ -301,15 +603,17 @@ def generate_chess_demo_svg(
             )
 
     # Draw traversal path as a faint connecting line
-    parts.append('<polyline points="')
     points_str = []
     for row in range(square_count):
         for col in range(square_count):
-            cx = margin + (origin_x + col * square_size + square_size / 2) * scale
-            cy = margin + (origin_y + row * square_size + square_size / 2) * scale
+            x_mm, y_mm = _square_center_mm(row, col, square_size, gap_mm, origin_x, origin_y)
+            cx = margin + x_mm * scale
+            cy = margin + y_mm * scale
             points_str.append(f"{cx:.1f},{cy:.1f}")
-    parts.append(" ".join(points_str))
-    parts.append('" fill="none" stroke="rgba(220,50,50,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>')
+    parts.append(
+        f'<polyline points="{" ".join(points_str)}" '
+        f'fill="none" stroke="rgba(220,50,50,0.3)" stroke-width="1.5" stroke-dasharray="4,3"/>'
+    )
 
     parts.append("</svg>")
     return "\n".join(parts)

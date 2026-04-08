@@ -181,6 +181,16 @@ class PlotterController:
                 self._serial = None
         self._cancel_requested = False
 
+    def reset(self) -> None:
+        """Toggle DTR to reset the Arduino, killing all outputs (including PWM).
+
+        Disconnects and reconnects the serial port, which toggles DTR and
+        forces a hardware reset. This is the only reliable way to fully
+        de-energize the electromagnet on some GRBL builds.
+        """
+        self.disconnect()
+        self.connect()
+
     def request_cancel(self) -> None:
         """Signal that the current streaming operation should stop."""
         self._cancel_requested = True

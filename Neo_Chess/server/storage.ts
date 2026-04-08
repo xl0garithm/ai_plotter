@@ -9,13 +9,15 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   async createGame(insertGame: InsertGame): Promise<Game> {
-    const [game] = await db.insert(games).values(insertGame).returning();
+    const [game] = await db.insert(games).values({
+      ...insertGame,
+      createdAt: new Date().toISOString(),
+    }).returning();
     return game;
   }
 
   async getGames(): Promise<Game[]> {
-    // Return latest games first
-    return await db.select().from(games).orderBy(desc(games.createdAt));
+    return await db.select().from(games).orderBy(desc(games.id));
   }
 }
 

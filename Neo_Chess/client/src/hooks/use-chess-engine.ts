@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Chess } from "chess.js";
+import { Chess, Square } from "chess.js";
 
 export type GameMode = "pvp" | "pvai" | "aivai";
 export type Difficulty = "easy" | "medium" | "hard";
@@ -7,8 +7,8 @@ export type Difficulty = "easy" | "medium" | "hard";
 export interface ChessGameState {
   fen: string;
   turn: "w" | "b";
-  selectedSquare: string | null;
-  validMoveSquares: string[];
+  selectedSquare: Square | null;
+  validMoveSquares: Square[];
   isCheck: boolean;
   isCheckmate: boolean;
   isDraw: boolean;
@@ -17,9 +17,19 @@ export interface ChessGameState {
   capturedByWhite: string[];
   capturedByBlack: string[];
   moveCount: number;
-  lastMove: { from: string; to: string } | null;
+  lastMove: { 
+    from: Square; 
+    to: Square;
+    piece?: string;
+    color?: "w" | "b";
+    flags?: string;
+    captured?: string | null;
+    promotion?: string | null;
+  } | null;
   gameMode: GameMode;
-  promotionPending: { from: string; to: string } | null;
+  promotionPending: { from: Square; to: Square } | null;
+  whitePlayer: string;
+  blackPlayer: string;
 }
 
 // Piece square tables for AI evaluation
@@ -218,18 +228,30 @@ function computeCaptured(chess: Chess): { byWhite: string[], byBlack: string[] }
   return { byWhite, byBlack };
 }
 
+type LastMoveData = {
+  from: Square; 
+  to: Square;
+  piece?: string;
+  color?: "w" | "b";
+  flags?: string;
+  captured?: string | null;
+  promotion?: string | null;
+} | null;
+
 function buildGameState(
   chess: Chess,
-  selectedSquare: string | null,
+  selectedSquare: Square | null,
   gameMode: GameMode,
-  promotionPending: { from: string; to: string } | null,
-  lastMove: { from: string; to: string } | null
+  promotionPending: { from: Square; to: Square } | null,
+  lastMove: LastMoveData,
+  whitePlayer: string = "White Player",
+  blackPlayer: string = "Black Player"
 ): ChessGameState {
   let winner: "w" | "b" | "draw" | null = null;
   if (chess.isCheckmate()) winner = chess.turn() === "w" ? "b" : "w";
   else if (chess.isDraw()) winner = "draw";
 
-  let validMoveSquares: string[] = [];
+  let validMoveSquares: Square[] = [];
   if (selectedSquare) {
     const moves = chess.moves({ square: selectedSquare as any, verbose: true });
     validMoveSquares = moves.map(m => m.to);
@@ -253,13 +275,15 @@ function buildGameState(
     lastMove,
     gameMode,
     promotionPending,
+    whitePlayer,
+    blackPlayer,
   };
 }
 
-export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
+export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, whitePlayer: string = "White Player", blackPlayer: string = "Black Player") {
   const chessRef = useRef(new Chess());
   const [gameState, setGameState] = useState<ChessGameState>(() =>
-    buildGameState(chessRef.current, null, gameMode, null, null)
+    buildGameState(chessRef.current, null, gameMode, null, null, whitePlayer, blackPlayer)
   );
   const aiThinkingRef = useRef(false);
 
@@ -269,11 +293,19 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
     return false; // aivai
   }, [gameMode]);
 
-  const updateState = useCallback((sq: string | null = null, promo: { from: string; to: string } | null = null, lastMove: { from: string; to: string } | null = null) => {
-    setGameState(buildGameState(chessRef.current, sq, gameMode, promo, lastMove));
-  }, [gameMode]);
+  const updateState = useCallback((sq: Square | null = null, promo: { from: Square; to: Square } | null = null, lastMoveData: { 
+    from: Square; 
+    to: Square;
+    piece?: string;
+    color?: "w" | "b";
+    flags?: string;
+    captured?: string | null;
+    promotion?: string | null;
+  } | null = null) => {
+    setGameState(buildGameState(chessRef.current, sq, gameMode, promo, lastMoveData, whitePlayer, blackPlayer));
+  }, [gameMode, whitePlayer, blackPlayer]);
 
-  const selectSquare = useCallback((square: string) => {
+  const selectSquare = useCallback((square: Square) => {
     const chess = chessRef.current;
     if (chess.isGameOver()) return;
 
@@ -298,7 +330,15 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
         try {
           const moveResult = chess.move({ from: currentSelected as any, to: square as any });
           if (moveResult) {
-            updateState(null, null, { from: currentSelected, to: square });
+            updateState(null, null, { 
+              from: currentSelected, 
+              to: square,
+              piece: moveResult.piece,
+              color: moveResult.color,
+              flags: moveResult.flags,
+              captured: moveResult.captured || null,
+              promotion: moveResult.promotion || null,
+            });
           }
         } catch {
           updateState(null, null, null);
@@ -324,7 +364,15 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
     try {
       const moveResult = chess.move({ from: pending.from as any, to: pending.to as any, promotion: promoteTo });
       if (moveResult) {
-        updateState(null, null, { from: pending.from, to: pending.to });
+        updateState(null, null, { 
+          from: pending.from, 
+          to: pending.to,
+          piece: moveResult.piece,
+          color: moveResult.color,
+          flags: moveResult.flags,
+          captured: moveResult.captured || null,
+          promotion: moveResult.promotion || null,
+        });
       }
     } catch {
       updateState(null, null, gameState.lastMove);
@@ -356,7 +404,15 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty) {
           const result = chess.move(bestMove);
           if (result) {
             aiThinkingRef.current = false;
-            updateState(null, null, { from: result.from, to: result.to });
+            updateState(null, null, { 
+              from: result.from, 
+              to: result.to,
+              piece: result.piece,
+              color: result.color,
+              flags: result.flags,
+              captured: result.captured || null,
+              promotion: result.promotion || null,
+            });
           }
         } catch {
           aiThinkingRef.current = false;

@@ -1,14 +1,15 @@
+import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+const DATABASE_URL = process.env.DATABASE_URL || "./storage/neo_chess.db";
 
 export default defineConfig({
-  out: "./migrations",
   schema: "./shared/schema.ts",
-  dialect: "postgresql",
+  out: "./migrations",
+  dialect: "sqlite",
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    url: DATABASE_URL,
   },
+  verbose: true,
+  strict: true,
 });
