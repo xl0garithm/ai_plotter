@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from typing import List, Tuple
 
+from services.electromagnet import MAGNET_GCODE_OFF, MAGNET_GCODE_ON
 from services.vectorizer import VectorData
 
 Point = Tuple[float, float]
@@ -339,3 +340,72 @@ def chess_board_to_svg(
 
     lines.append("</svg>")
     return "\n".join(lines)
+
+
+def algebraic_square_to_center_mm(
+    alg: str,
+    board_size_mm: float,
+    square_count: int,
+    origin_x: float,
+    origin_y: float,
+) -> Tuple[float, float]:
+    """Map a square like ``e4`` to machine coordinates at the square center (mm).
+
+    Layout matches :func:`generate_chess_demo_gcode`: row 0 is rank *square_count*,
+    column 0 is file ``a``.
+    """
+    alg = alg.strip().lower()
+    if len(alg) != 2:
+        raise ValueError(f"Invalid square (expected 2 chars): {alg!r}")
+    file_ch, rank_ch = alg[0], alg[1]
+    if file_ch not in "abcdefgh" or not rank_ch.isdigit():
+        raise ValueError(f"Invalid square: {alg!r}")
+    rank = int(rank_ch)
+    if not 1 <= rank <= square_count:
+        raise ValueError(f"Invalid rank for board size: {alg!r}")
+    col = ord(file_ch) - ord("a")
+    row = square_count - rank
+    square_size = board_size_mm / square_count
+    x = origin_x + col * square_size + square_size / 2
+    y = origin_y + row * square_size + square_size / 2
+    return x, y
+
+
+def generate_piece_move_gcode(
+    from_alg: str,
+    to_alg: str,
+    *,
+    board_size_mm: float = 200.0,
+    square_count: int = 8,
+    origin_x: float = 0.0,
+    origin_y: float = 0.0,
+    source_settle_s: float = 0.05,
+    pickup_dwell_s: float = 0.2,
+    place_dwell_s: float = 0.15,
+) -> list[str]:
+    """G-code for one pickup-move-place with host-side magnet directives.
+
+    Sequence: move to source (magnet off), settle, magnet on + pickup dwell,
+    rapid to destination, place dwell, magnet off. The plotter must be driven
+    with :meth:`PlotterController.send_gcode_lines` and an ``electromagnet``
+    instance so ``; @MAGNET_*`` lines take effect.
+    """
+    fx, fy = algebraic_square_to_center_mm(
+        from_alg, board_size_mm, square_count, origin_x, origin_y
+    )
+    tx, ty = algebraic_square_to_center_mm(
+        to_alg, board_size_mm, square_count, origin_x, origin_y
+    )
+
+    lines: list[str] = [
+        f"; piece move {from_alg}->{to_alg}",
+        MAGNET_GCODE_OFF,
+        f"G0 X{fx:.2f} Y{fy:.2f} ; pickup {from_alg}",
+        f"G4 P{source_settle_s:.2f} ; settle at source",
+        MAGNET_GCODE_ON,
+        f"G4 P{pickup_dwell_s:.2f} ; pickup dwell",
+        f"G0 X{tx:.2f} Y{ty:.2f} ; place {to_alg}",
+        f"G4 P{place_dwell_s:.2f} ; settle at destination",
+        MAGNET_GCODE_OFF,
+    ]
+    return lines

@@ -53,6 +53,19 @@ class Config:
     CHESS_ORIGIN_X_MM = float(os.environ.get("CHESS_ORIGIN_X_MM", "0.0"))
     CHESS_ORIGIN_Y_MM = float(os.environ.get("CHESS_ORIGIN_Y_MM", "0.0"))
     CHESS_TAP_DWELL_S = float(os.environ.get("CHESS_TAP_DWELL_S", "0.3"))
+    CHESS_SOURCE_SETTLE_S = float(os.environ.get("CHESS_SOURCE_SETTLE_S", "0.05"))
+    CHESS_PICKUP_DWELL_S = float(os.environ.get("CHESS_PICKUP_DWELL_S", "0.2"))
+    CHESS_PLACE_DWELL_S = float(os.environ.get("CHESS_PLACE_DWELL_S", "0.15"))
+
+    # Electromagnet (Raspberry Pi GPIO PWM; host-side only, not sent over serial)
+    ELECTROMAGNET_ENABLED = os.environ.get("ELECTROMAGNET_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    ELECTROMAGNET_BCM_PIN = int(os.environ.get("ELECTROMAGNET_BCM_PIN", "12"))
+    ELECTROMAGNET_PWM_FREQUENCY_HZ = float(os.environ.get("ELECTROMAGNET_PWM_FREQUENCY_HZ", "1000"))
 
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads

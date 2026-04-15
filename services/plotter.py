@@ -7,6 +7,8 @@ from typing import Callable, Iterable, Optional
 
 import serial
 
+from services.electromagnet import ElectromagnetBase, parse_magnet_directive
+
 # ----- Exceptions -----
 class PlotterError(RuntimeError):
     """Raised when plotter communication fails."""
@@ -218,20 +220,46 @@ class PlotterController:
         lines: Iterable[str],
         *,
         progress_callback: Optional[Callable[[int], None]] = None,
+        electromagnet: Optional["ElectromagnetBase"] = None,
     ) -> None:
-        """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling."""
+        """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling.
+
+        Lines ``; @MAGNET_ON`` / ``; @MAGNET_OFF`` are host-only: they toggle the
+        optional *electromagnet* after the previous command has ACKed, and are not
+        sent over serial. If *electromagnet* is omitted, directives are skipped
+        (logged at debug).
+        """
         self._ensure_connection()
         self._cancel_requested = False
         assert self._serial is not None  # for type checkers
 
-        for idx, raw_line in enumerate(lines, start=1):
-            # mirror behaviour of reference: strip CR/LF then re-append single LF
-            line = raw_line.rstrip("\r\n") + "\n"
-            if not line.strip():
+        idx = 0
+        for raw_line in lines:
+            if not raw_line.strip():
                 continue  # skip blank lines
 
             if self._cancel_requested:
                 raise PlotterError("Transmission cancelled by user.")
+
+            magnet_action = parse_magnet_directive(raw_line)
+            if magnet_action is not None:
+                idx += 1
+                if electromagnet is None:
+                    logging.debug("Skipping host magnet directive (no electromagnet): %s", magnet_action)
+                elif magnet_action == "on":
+                    electromagnet.full_on()
+                else:
+                    electromagnet.off()
+                if progress_callback:
+                    try:
+                        progress_callback(idx)
+                    except Exception:
+                        logging.debug("Progress callback failed", exc_info=True)
+                continue
+
+            idx += 1
+            # mirror behaviour of reference: strip CR/LF then re-append single LF
+            line = raw_line.rstrip("\r\n") + "\n"
 
             logging.info("SEND: %s", line.rstrip("\r\n"))
             ok = _send_line_and_wait(

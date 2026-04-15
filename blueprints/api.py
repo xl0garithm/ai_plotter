@@ -16,11 +16,13 @@ import tempfile
 from pathlib import Path
 
 from services.chess import (
-    generate_chess_board,
     chess_board_to_svg,
+    generate_chess_board,
     generate_chess_demo_gcode,
     generate_chess_demo_svg,
+    generate_piece_move_gcode,
 )
+from services.electromagnet import create_electromagnet_from_mapping
 from services.gcode import vector_data_to_gcode, GCodeSettings, GCodeError
 from services.gemini_client import GeminiClient, GeminiClientError
 from services.plotter import PlotterController, PlotterError
@@ -314,6 +316,68 @@ def chess_demo_preview() -> Response:
         origin_y=config.get("CHESS_ORIGIN_Y_MM", 0.0),
     )
     return Response(svg_content, mimetype="image/svg+xml")
+
+
+@api_bp.post("/chess/execute-move")
+def chess_execute_move() -> Response:
+    """Run a single piece move on the plotter with Pi electromagnet timing."""
+    config = current_app.config
+
+    data = request.get_json(silent=True) or {}
+    from_sq = (data.get("from") or "").strip().lower()
+    to_sq = (data.get("to") or "").strip().lower()
+
+    if len(from_sq) != 2 or len(to_sq) != 2:
+        return jsonify({"error": "from and to must be algebraic squares (e.g. e2, e4)."}), 400
+
+    try:
+        gcode_lines = generate_piece_move_gcode(
+            from_sq,
+            to_sq,
+            board_size_mm=float(config.get("CHESS_BOARD_SIZE_MM", 200.0)),
+            square_count=int(config.get("CHESS_SQUARE_COUNT", 8)),
+            origin_x=float(config.get("CHESS_ORIGIN_X_MM", 0.0)),
+            origin_y=float(config.get("CHESS_ORIGIN_Y_MM", 0.0)),
+            source_settle_s=float(config.get("CHESS_SOURCE_SETTLE_S", 0.05)),
+            pickup_dwell_s=float(config.get("CHESS_PICKUP_DWELL_S", 0.2)),
+            place_dwell_s=float(config.get("CHESS_PLACE_DWELL_S", 0.15)),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    dry_run = config.get("PLOTTER_DRY_RUN", False)
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
+
+    if dry_run:
+        return jsonify({
+            "success": True,
+            "dry_run": True,
+            "gcode_lines": gcode_lines,
+        })
+
+    electromagnet = create_electromagnet_from_mapping(config)
+    try:
+        controller = PlotterController(
+            port=config["SERIAL_PORT"],
+            baudrate=config["SERIAL_BAUDRATE"],
+            timeout=config.get("SERIAL_TIMEOUT", 10.0),
+            line_delay=config.get("PLOTTER_LINE_DELAY", 0.1),
+        )
+        controller.connect()
+        try:
+            controller.send_gcode_lines(gcode_lines, electromagnet=electromagnet)
+        finally:
+            controller.disconnect()
+    except PlotterError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Chess execute-move failed: %s", exc)
+        return jsonify({"error": "Unexpected error during move."}), 500
+    finally:
+        electromagnet.close()
+
+    return jsonify({"success": True})
 
 
 @api_bp.post("/chess/demo/run")
