@@ -90,3 +90,6 @@ When using execute-on-plotter for chess, the following physical assumptions appl
 - **Board and origin:** The physical board must match `CHESS_BOARD_SIZE_MM`, `CHESS_SQUARE_COUNT`, and `CHESS_ORIGIN_X_MM` / `CHESS_ORIGIN_Y_MM`. Optionally use `CHESS_DIMENSIONS_JSON` (see env.example) to load dimensions from a CAD export.
 - **Discard:** Captured pieces are moved to a discard position at `origin - 1.5 * square_size` in X and Y. Ensure this is off the board and the path is clear.
 - **Magnet timing:** The electromagnet stays on from pickup until after place (the whole move). Longest move duration is roughly travel distance divided by rapid feed rate. If your controller has a maximum magnet on-time, set `CHESS_RAPID_FEED_MM_S` and optionally `CHESS_MAGNET_MAX_ON_S` so the app can warn when a move would exceed it.
+- **Castling:** The plotter runs **two** motions (king, then rook). Only standard O-O / O-O-O start squares are supported (`e1g1`+`h1f1`, etc.).
+- **En passant:** Neo_Chess sends `captured_square` on `POST /api/chess/execute-move` so the captured pawn is lifted from the correct square (not the landing square).
+- **Promotion:** The magnet moves the pawn to the promotion square; swapping in a physical queen/rook/bishop/knight is still manual unless you extend the hardware flow.

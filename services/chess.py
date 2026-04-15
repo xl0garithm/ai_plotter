@@ -152,6 +152,28 @@ def _clip_diagonal_to_square(
     return []
 
 
+# Standard chess castling: king move UCI -> rook move UCI (king executed first, then rook).
+_CASTLING_ROOK_UCI: dict[str, str] = {
+    "e1g1": "h1f1",
+    "e1c1": "a1d1",
+    "e8g8": "h8f8",
+    "e8c8": "a8d8",
+}
+
+
+def plotter_uci_legs(uci_move: str) -> list[str]:
+    """Expand one logical move into 4-char UCI legs for the physical board.
+
+    Castling is two pick-place motions (king, then rook). Other moves are a single leg;
+    promotion may use a 5-character UCI — only the first four are used for coordinates.
+    """
+    u = uci_move.strip()
+    base = u[:4]
+    if base in _CASTLING_ROOK_UCI:
+        return [base, _CASTLING_ROOK_UCI[base]]
+    return [base]
+
+
 def uci_square_to_mm(
     file_char: str,
     rank_char: str,
@@ -160,12 +182,12 @@ def uci_square_to_mm(
     origin_x: float,
     origin_y: float,
 ) -> tuple[float, float]:
-    """Map UCI file/rank (e.g. e, 2) to square center in mm. Origin top-left; rank 8 at top."""
+    """Map UCI file/rank (e.g. e, 2) to square center in mm. Origin top-left; highest rank at top."""
     square_size = board_size_mm / square_count
     file_idx = ord(file_char.lower()) - ord("a")
     rank = int(rank_char)
     x = origin_x + (file_idx + 0.5) * square_size
-    y = origin_y + (8.5 - rank) * square_size
+    y = origin_y + (square_count + 0.5 - rank) * square_size
     return (x, y)
 
 
@@ -179,10 +201,13 @@ def move_to_gcode(
     discard_offset_squares: float = 1.5,
     dwell_s: float = 0.3,
     settle_after_place_s: float = 0.5,
+    captured_piece_square: str | None = None,
 ) -> list[str]:
     """Convert one UCI move to G-code for electromagnet arm: go to from, magnet on, dwell, go to to, magnet off, settle. If capture, first move captured piece to discard. Pieces assumed same height so lifted piece clears board. See README 'Chess robot: physical assumptions' for piece/clearance limits.
 
     Magnet remains on from pickup until after place (entire move). Longest move time is travel distance at machine rapid rate. If the controller has a maximum electromagnet on-time, ensure board size and feed rate keep the longest move under that limit, or rely on firmware to handle it.
+
+    For en passant, pass ``captured_piece_square`` (e.g. ``"d5"``) so the captured pawn is removed from the correct square (not ``to``).
     """
     square_size = board_size_mm / square_count
     discard_x = origin_x - square_size * discard_offset_squares
@@ -196,7 +221,20 @@ def move_to_gcode(
     )
     tx, ty = uci_square_to_mm(to_sq[0], to_sq[1], board_size_mm, square_count, origin_x, origin_y)
     if capture:
-        lines.append(f"G0 X{tx:.2f} Y{ty:.2f} ; to capture square")
+        if captured_piece_square and len(captured_piece_square) >= 2:
+            cx, cy = uci_square_to_mm(
+                captured_piece_square[0],
+                captured_piece_square[1],
+                board_size_mm,
+                square_count,
+                origin_x,
+                origin_y,
+            )
+            cap_comment = f"en passant victim {captured_piece_square}"
+        else:
+            cx, cy = tx, ty
+            cap_comment = "capture square"
+        lines.append(f"G0 X{cx:.2f} Y{cy:.2f} ; to {cap_comment}")
         lines.append("M3 S90 ; electromagnet on")
         lines.append(f"G4 P{dwell_s:.2f} ; pickup dwell")
         lines.append(f"G0 X{discard_x:.2f} Y{discard_y:.2f} ; to discard")

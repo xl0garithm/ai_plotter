@@ -39,7 +39,7 @@ class SPAStaticFiles(StarletteStaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = Config()
-    Config.ensure_directories()
+    config.ensure_directories()
     init_db(config.DATABASE_URL)
     set_config(config)
     app.state.templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))

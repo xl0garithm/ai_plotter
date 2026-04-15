@@ -256,7 +256,22 @@ function buildGameState(
   };
 }
 
-export type OnMoveCallback = (uci: string, capture: boolean) => void;
+/** Optional fields for plotter / execute-move (en passant victim square, etc.). */
+export type PlotterMoveExtra = { capturedSquare?: string };
+
+export type OnMoveCallback = (uci: string, capture: boolean, extra?: PlotterMoveExtra) => void;
+
+function plotterExtraFromMove(moveResult: {
+  flags?: string;
+  from: string;
+  to: string;
+}): PlotterMoveExtra | undefined {
+  const flags = typeof moveResult.flags === "string" ? moveResult.flags : "";
+  if (flags.includes("e")) {
+    return { capturedSquare: moveResult.to[0] + moveResult.from[1] };
+  }
+  return undefined;
+}
 
 export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMove?: OnMoveCallback) {
   const chessRef = useRef(new Chess());
@@ -288,7 +303,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMov
     if (currentSelected) {
       const validTargets = chess.moves({ square: currentSelected as any, verbose: true }).map(m => m.to);
 
-      if (validTargets.includes(square)) {
+      if (validTargets.includes(square as (typeof validTargets)[number])) {
         // Check for pawn promotion
         const piece = chess.get(currentSelected as any);
         const targetRank = square[1];
@@ -301,7 +316,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMov
           const moveResult = chess.move({ from: currentSelected as any, to: square as any });
           if (moveResult) {
             const uci = moveResult.from + moveResult.to + (moveResult.promotion || "");
-            onMove?.(uci, !!moveResult.captured);
+            onMove?.(uci, !!moveResult.captured, plotterExtraFromMove(moveResult));
             updateState(null, null, { from: currentSelected, to: square });
           }
         } catch {
@@ -329,7 +344,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMov
       const moveResult = chess.move({ from: pending.from as any, to: pending.to as any, promotion: promoteTo });
       if (moveResult) {
         const uci = moveResult.from + moveResult.to + (moveResult.promotion || "");
-        onMove?.(uci, !!moveResult.captured);
+        onMove?.(uci, !!moveResult.captured, plotterExtraFromMove(moveResult));
         updateState(null, null, { from: pending.from, to: pending.to });
       }
     } catch {
@@ -362,7 +377,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, onMov
           const result = chess.move(bestMove);
           if (result) {
             const uci = result.from + result.to + (result.promotion || "");
-            onMove?.(uci, !!result.captured);
+            onMove?.(uci, !!result.captured, plotterExtraFromMove(result));
             aiThinkingRef.current = false;
             updateState(null, null, { from: result.from, to: result.to });
           }

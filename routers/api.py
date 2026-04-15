@@ -18,6 +18,7 @@ from services.chess import (
     generate_chess_demo_gcode,
     generate_chess_demo_svg,
     move_to_gcode,
+    plotter_uci_legs,
     uci_square_to_mm,
 )
 from services.chess_game import get_session
@@ -335,48 +336,76 @@ def chess_execute_move(request: Request, body: dict | None = Body(default=None))
     body = body or {}
     uci = (body.get("uci") or "").strip()
     capture = body.get("capture", False)
+    captured_square_raw = (body.get("captured_square") or "").strip()
+    captured_square = captured_square_raw if len(captured_square_raw) >= 2 else None
     if len(uci) < 4:
         raise HTTPException(status_code=400, detail="Provide valid UCI move (e.g. e2e4)")
     try:
-        _send_move_gcode(uci, capture, request)
+        _send_move_gcode(uci, capture, request, captured_square=captured_square)
     except Exception as e:
         logger.exception("Execute move failed: %s", e)
         raise HTTPException(status_code=500, detail="Execute failed: " + str(e))
     return {"success": True, "dry_run": get_config().PLOTTER_DRY_RUN}
 
 
-def _send_move_gcode(uci: str, capture: bool, request: Request) -> None:
+def _leg_travel_mm(
+    uci4: str,
+    board_mm: float,
+    square_count: int,
+    origin_x: float,
+    origin_y: float,
+) -> float:
+    fx, fy = uci_square_to_mm(uci4[0], uci4[1], board_mm, square_count, origin_x, origin_y)
+    tx, ty = uci_square_to_mm(uci4[2], uci4[3], board_mm, square_count, origin_x, origin_y)
+    return math.hypot(tx - fx, ty - fy)
+
+
+def _send_move_gcode(
+    uci: str,
+    capture: bool,
+    request: Request,
+    *,
+    captured_square: str | None = None,
+) -> None:
     cfg = _config_dict(request)
     board_mm = cfg.get("CHESS_BOARD_SIZE_MM", 200.0)
     square_count = cfg.get("CHESS_SQUARE_COUNT", 8)
     origin_x = cfg.get("CHESS_ORIGIN_X_MM", 0.0)
     origin_y = cfg.get("CHESS_ORIGIN_Y_MM", 0.0)
     config = get_config()
-    if getattr(config, "CHESS_MAGNET_MAX_ON_S", None) is not None and len(uci) >= 4:
-        fx, fy = uci_square_to_mm(uci[0], uci[1], board_mm, square_count, origin_x, origin_y)
-        tx, ty = uci_square_to_mm(uci[2], uci[3], board_mm, square_count, origin_x, origin_y)
-        distance_mm = math.sqrt((tx - fx) ** 2 + (ty - fy) ** 2)
-        rapid_mm_s = getattr(config, "CHESS_RAPID_FEED_MM_S", 100.0)
-        move_time_s = distance_mm / rapid_mm_s if rapid_mm_s > 0 else 0.0
-        if move_time_s > config.CHESS_MAGNET_MAX_ON_S:
-            logger.warning(
-                "Move %s distance %.0f mm (~%.2f s) exceeds CHESS_MAGNET_MAX_ON_S=%.2f s",
-                uci,
-                distance_mm,
-                move_time_s,
-                config.CHESS_MAGNET_MAX_ON_S,
+    legs = plotter_uci_legs(uci)
+    max_on = getattr(config, "CHESS_MAGNET_MAX_ON_S", None)
+    rapid_mm_s = getattr(config, "CHESS_RAPID_FEED_MM_S", 100.0)
+    if max_on is not None and rapid_mm_s > 0:
+        for leg in legs:
+            distance_mm = _leg_travel_mm(leg, board_mm, square_count, origin_x, origin_y)
+            move_time_s = distance_mm / rapid_mm_s
+            if move_time_s > max_on:
+                logger.warning(
+                    "Leg %s distance %.0f mm (~%.2f s) exceeds CHESS_MAGNET_MAX_ON_S=%.2f s",
+                    leg,
+                    distance_mm,
+                    move_time_s,
+                    max_on,
+                )
+    lines: list[str] = []
+    for i, leg in enumerate(legs):
+        leg_capture = capture if i == 0 else False
+        leg_captured_sq = captured_square if (i == 0 and leg_capture) else None
+        lines.extend(
+            move_to_gcode(
+                leg,
+                leg_capture,
+                board_size_mm=board_mm,
+                square_count=square_count,
+                origin_x=origin_x,
+                origin_y=origin_y,
+                discard_offset_squares=cfg.get("CHESS_DISCARD_OFFSET_SQUARES", 1.5),
+                dwell_s=cfg.get("CHESS_TAP_DWELL_S", 0.3),
+                settle_after_place_s=cfg.get("CHESS_MAGNET_SETTLE_S", 0.5),
+                captured_piece_square=leg_captured_sq,
             )
-    lines = move_to_gcode(
-        uci,
-        capture,
-        board_size_mm=board_mm,
-        square_count=square_count,
-        origin_x=origin_x,
-        origin_y=origin_y,
-        discard_offset_squares=cfg.get("CHESS_DISCARD_OFFSET_SQUARES", 1.5),
-        dwell_s=cfg.get("CHESS_TAP_DWELL_S", 0.3),
-        settle_after_place_s=cfg.get("CHESS_MAGNET_SETTLE_S", 0.5),
-    )
+        )
     if cfg.get("PLOTTER_DRY_RUN"):
         return
     config = get_config()
@@ -425,9 +454,17 @@ def chess_play_move(request: Request, body: dict | None = Body(default=None)):
             for i in range(len(moves_done) - 1, -1, -1):
                 b.pop()
             for m in moves_done:
-                cap = b.is_capture(chess.Move.from_uci(m))
-                _send_move_gcode(m, cap, request)
-                b.push(chess.Move.from_uci(m))
+                move = chess.Move.from_uci(m)
+                cap = b.is_capture(move)
+                captured_sq = None
+                if b.is_en_passant(move):
+                    victim = chess.square(
+                        chess.square_file(move.to_square),
+                        chess.square_rank(move.from_square),
+                    )
+                    captured_sq = chess.square_name(victim)
+                _send_move_gcode(m, cap, request, captured_square=captured_sq)
+                b.push(move)
         except Exception as e:
             logger.exception("Chess play execute failed: %s", e)
             raise HTTPException(status_code=500, detail="Execute failed: " + str(e))

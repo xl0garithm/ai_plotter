@@ -7,7 +7,7 @@ import { CyberButton } from "@/components/CyberButton";
 import { useChessEngine } from "@/hooks/use-chess-engine";
 import { useCreateGame } from "@/hooks/use-games";
 import { RefreshCw, LogOut } from "lucide-react";
-import type { GameMode, Difficulty } from "@/hooks/use-chess-engine";
+import type { GameMode, Difficulty, PlotterMoveExtra } from "@/hooks/use-chess-engine";
 
 const PIECE_UNICODE: Record<string, string> = {
   p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚"
@@ -75,11 +75,17 @@ function PromotionModal({
 
 const EXECUTE_PLOTTER_KEY = "neo_chess_execute_plotter";
 
-async function executeMoveOnPlotter(uci: string, capture: boolean): Promise<void> {
+async function executeMoveOnPlotter(
+  uci: string,
+  capture: boolean,
+  capturedSquare?: string,
+): Promise<void> {
+  const body: Record<string, string | boolean> = { uci, capture };
+  if (capturedSquare) body.captured_square = capturedSquare;
   const res = await fetch("/api/chess/execute-move", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uci, capture }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -103,15 +109,18 @@ export default function Game() {
   const executeRef = useRef(executeOnPlotter);
   executeRef.current = executeOnPlotter;
 
-  const handlePlotterMove = useCallback(async (uci: string, capture: boolean) => {
-    if (!executeRef.current) return;
-    setPlotterError(null);
-    try {
-      await executeMoveOnPlotter(uci, capture);
-    } catch (e) {
-      setPlotterError(e instanceof Error ? e.message : "Plotter failed");
-    }
-  }, []);
+  const handlePlotterMove = useCallback(
+    async (uci: string, capture: boolean, extra?: PlotterMoveExtra) => {
+      if (!executeRef.current) return;
+      setPlotterError(null);
+      try {
+        await executeMoveOnPlotter(uci, capture, extra?.capturedSquare);
+      } catch (e) {
+        setPlotterError(e instanceof Error ? e.message : "Plotter failed");
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     localStorage.setItem(EXECUTE_PLOTTER_KEY, String(executeOnPlotter));
