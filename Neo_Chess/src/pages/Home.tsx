@@ -7,6 +7,8 @@ import type { GameMode, Difficulty } from "@/hooks/use-chess-engine";
 
 type VoiceStyle = "harsh" | "sweet";
 
+type BoardStyle = "2d" | "3d";
+
 const MODES: { id: GameMode; label: string; desc: string; icon: React.ReactNode }[] = [
   {
     id: "pvp",
@@ -35,6 +37,7 @@ export default function Home() {
   const [gameMode, setGameMode] = useState<GameMode>("pvai");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [voiceStyle, setVoiceStyle] = useState<VoiceStyle>("harsh");
+  const [boardStyle, setBoardStyle] = useState<BoardStyle>("3d");
 
   const handleStart = () => {
     const p1 = name.trim() || "Cyber Mint";
@@ -50,6 +53,7 @@ export default function Home() {
     localStorage.setItem("gameMode", gameMode);
     localStorage.setItem("difficulty", difficulty);
     localStorage.setItem("voiceStyle", voiceStyle);
+    localStorage.setItem("boardStyle", boardStyle);
     setLocation("/game");
   };
 
@@ -204,6 +208,34 @@ export default function Home() {
         <span className="text-xl">{v.icon}</span>
         <span className="text-[9px] font-bold uppercase tracking-wider leading-tight">{v.label}</span>
         <span className="text-[8px] text-muted-foreground">{v.desc}</span>
+      </button>
+    ))}
+  </div>
+</div>
+
+          {/* Board Style */}
+<div className="space-y-3">
+  <label className="text-xs font-bold text-primary uppercase tracking-wider">
+    Board Rendering
+  </label>
+  <div className="grid grid-cols-2 gap-2">
+    {([
+      { id: "2d", label: "2D Performance", desc: "Lightweight, fast", icon: "⚡" },
+      { id: "3d", label: "3D Immersive", desc: "Animated, detailed", icon: "🎮" },
+    ] as { id: BoardStyle; label: string; desc: string; icon: string }[]).map((style) => (
+      <button
+        key={style.id}
+        onClick={() => setBoardStyle(style.id)}
+        className={`
+          flex flex-col items-center gap-1.5 py-3 px-2 border transition-all text-center
+          ${boardStyle === style.id
+            ? "border-primary bg-primary/10 text-primary shadow-[0_0_15px_rgba(0,243,255,0.3)]"
+            : "border-border text-muted-foreground hover:border-primary/40 hover:text-primary/70"}
+        `}
+      >
+        <span className="text-xl">{style.icon}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wider leading-tight">{style.label}</span>
+        <span className="text-[8px] text-muted-foreground">{style.desc}</span>
       </button>
     ))}
   </div>
