@@ -121,6 +121,12 @@ export default function Game() {
     playAudio(AudioEvent.GAME_START);
   }, [gameMode, playAudio]);
 
+  useEffect(() => {
+    fetch("/api/chess/home", { method: "POST" }).catch((error) => {
+      console.error("Failed to home robot at game start:", error);
+    });
+  }, []);
+
   /* ----------------------------- AI MOVE AUDIO ---------------------------- */
 
   useEffect(() => {

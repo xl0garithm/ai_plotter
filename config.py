@@ -81,6 +81,8 @@ class Config:
     CHESS_CAPTURE_X_MM = float(os.environ.get("CHESS_CAPTURE_X_MM", "-30.0"))
     CHESS_CAPTURE_Y_MM = float(os.environ.get("CHESS_CAPTURE_Y_MM", "0.0"))
     CHESS_CAPTURE_SPACING_MM = float(os.environ.get("CHESS_CAPTURE_SPACING_MM", "15.0"))
+    CHESS_MIRROR_RANKS = os.environ.get("CHESS_MIRROR_RANKS", "false").strip().lower() in {"1", "true", "yes", "on"}
+    CHESS_HOME_AFTER_MOVE = os.environ.get("CHESS_HOME_AFTER_MOVE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
     # File settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB uploads

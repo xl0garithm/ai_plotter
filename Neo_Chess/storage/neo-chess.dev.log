@@ -1,0 +1,27 @@
+
+> rest-express@1.0.0 dev
+> cross-env NODE_ENV=development tsx server/index.ts
+
+node:internal/modules/cjs/loader:1473
+  return process.dlopen(module, path.toNamespacedPath(filename));
+                 ^
+
+Error: The module '/Users/logancarlson/Development/ai_plotter/Neo_Chess/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 141. This version of Node.js requires
+NODE_MODULE_VERSION 115. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).
+    at Module._extensions..node (node:internal/modules/cjs/loader:1473:18)
+    at Module.load (node:internal/modules/cjs/loader:1207:32)
+    at Module._load (node:internal/modules/cjs/loader:1023:12)
+    at Module.require (node:internal/modules/cjs/loader:1235:19)
+    at require (node:internal/modules/helpers:176:18)
+    at bindings (/Users/logancarlson/Development/ai_plotter/Neo_Chess/node_modules/bindings/bindings.js:112:48)
+    at new Database (/Users/logancarlson/Development/ai_plotter/Neo_Chess/node_modules/better-sqlite3/lib/database.js:48:64)
+    at <anonymous> (/Users/logancarlson/Development/ai_plotter/Neo_Chess/server/db.ts:8:16)
+    at ModuleJob.run (node:internal/modules/esm/module_job:218:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:329:24) {
+  code: 'ERR_DLOPEN_FAILED'
+}
+
+Node.js v20.11.1

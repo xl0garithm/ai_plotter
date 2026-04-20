@@ -267,7 +267,48 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
   const [gameState, setGameState] = useState<ChessGameState>(() =>
     buildGameState(chessRef.current, null, gameMode, null, null, whitePlayer, blackPlayer)
   );
+  const [robotBusy, setRobotBusy] = useState(false);
   const aiThinkingRef = useRef(false);
+  const robotMoveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRobotMovesRef = useRef(0);
+
+  const sendMoveToRobot = useCallback((move: {
+    from: string;
+    to: string;
+    piece: string;
+    color: "w" | "b";
+    flags: string;
+    captured?: string;
+    promotion?: string;
+    capture_index?: number;
+  }) => {
+    pendingRobotMovesRef.current += 1;
+    setRobotBusy(true);
+
+    robotMoveQueueRef.current = robotMoveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const res = await fetch("/api/chess/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(move),
+        });
+
+        if (!res.ok) {
+          const text = (await res.text()) || res.statusText;
+          throw new Error(`${res.status}: ${text}`);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to send move to robot:", move, error);
+      })
+      .finally(() => {
+        pendingRobotMovesRef.current = Math.max(0, pendingRobotMovesRef.current - 1);
+        if (pendingRobotMovesRef.current === 0) {
+          setRobotBusy(false);
+        }
+      });
+  }, []);
 
   const isHumanTurn = useCallback((turn: "w" | "b") => {
     if (gameMode === "pvp") return true;
@@ -282,6 +323,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
   const selectSquare = useCallback((square: Square) => {
     const chess = chessRef.current;
     if (chess.isGameOver()) return;
+    if (robotBusy) return;
 
     const currentTurn = chess.turn() as "w" | "b";
     if (!isHumanTurn(currentTurn)) return;
@@ -304,6 +346,20 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
         try {
           const moveResult = chess.move({ from: currentSelected as any, to: square as any });
           if (moveResult) {
+            sendMoveToRobot({
+              from: moveResult.from,
+              to: moveResult.to,
+              piece: moveResult.piece,
+              color: moveResult.color,
+              flags: moveResult.flags,
+              captured: moveResult.captured,
+              promotion: moveResult.promotion,
+              capture_index: moveResult.captured
+                ? moveResult.color === "w"
+                  ? gameState.capturedByWhite.length
+                  : gameState.capturedByBlack.length
+                : undefined,
+            });
             updateState(null, null, { from: currentSelected, to: square });
           }
         } catch {
@@ -320,7 +376,16 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
     } else {
       updateState(null, null, gameState.lastMove);
     }
-  }, [gameState.selectedSquare, gameState.lastMove, isHumanTurn, updateState]);
+  }, [
+    gameState.selectedSquare,
+    gameState.lastMove,
+    gameState.capturedByWhite.length,
+    gameState.capturedByBlack.length,
+    isHumanTurn,
+    robotBusy,
+    sendMoveToRobot,
+    updateState,
+  ]);
 
   const confirmPromotion = useCallback((promoteTo: "q" | "r" | "b" | "n") => {
     const pending = gameState.promotionPending;
@@ -330,16 +395,40 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
     try {
       const moveResult = chess.move({ from: pending.from as any, to: pending.to as any, promotion: promoteTo });
       if (moveResult) {
+        sendMoveToRobot({
+          from: moveResult.from,
+          to: moveResult.to,
+          piece: moveResult.piece,
+          color: moveResult.color,
+          flags: moveResult.flags,
+          captured: moveResult.captured,
+          promotion: moveResult.promotion,
+          capture_index: moveResult.captured
+            ? moveResult.color === "w"
+              ? gameState.capturedByWhite.length
+              : gameState.capturedByBlack.length
+            : undefined,
+        });
         updateState(null, null, { from: pending.from, to: pending.to });
       }
     } catch {
       updateState(null, null, gameState.lastMove);
     }
-  }, [gameState.promotionPending, gameState.lastMove, updateState]);
+  }, [
+    gameState.promotionPending,
+    gameState.lastMove,
+    gameState.capturedByWhite.length,
+    gameState.capturedByBlack.length,
+    sendMoveToRobot,
+    updateState,
+  ]);
 
   const resetGame = useCallback(() => {
     chessRef.current = new Chess();
     aiThinkingRef.current = false;
+    pendingRobotMovesRef.current = 0;
+    setRobotBusy(false);
+    robotMoveQueueRef.current = Promise.resolve();
     setGameState(buildGameState(chessRef.current, null, gameMode, null, null));
   }, [gameMode]);
 
@@ -349,6 +438,7 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
     const state = gameState;
 
     if (state.isGameOver || state.promotionPending) return;
+    if (robotBusy) return;
     if (isHumanTurn(state.turn)) return;
     if (aiThinkingRef.current) return;
 
@@ -361,6 +451,20 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
         try {
           const result = chess.move(bestMove);
           if (result) {
+            sendMoveToRobot({
+              from: result.from,
+              to: result.to,
+              piece: result.piece,
+              color: result.color,
+              flags: result.flags,
+              captured: result.captured,
+              promotion: result.promotion,
+              capture_index: result.captured
+                ? result.color === "w"
+                  ? state.capturedByWhite.length
+                  : state.capturedByBlack.length
+                : undefined,
+            });
             aiThinkingRef.current = false;
             updateState(null, null, { from: result.from, to: result.to });
           }
@@ -377,7 +481,19 @@ export function useChessEngine(gameMode: GameMode, difficulty: Difficulty, white
       clearTimeout(timer);
       aiThinkingRef.current = false;
     };
-  }, [gameState.turn, gameState.isGameOver, gameState.promotionPending, gameMode, difficulty, isHumanTurn, updateState]);
+  }, [
+    gameState.turn,
+    gameState.isGameOver,
+    gameState.promotionPending,
+    gameState.capturedByWhite.length,
+    gameState.capturedByBlack.length,
+    gameMode,
+    difficulty,
+    isHumanTurn,
+    robotBusy,
+    sendMoveToRobot,
+    updateState,
+  ]);
 
   return {
     gameState,

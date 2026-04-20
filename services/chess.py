@@ -195,11 +195,12 @@ def algebraic_to_mm(
     origin_x: float,
     origin_y: float,
     square_count: int = 8,
+    mirror_ranks: bool = False,
 ) -> tuple[float, float]:
     """Convert algebraic notation (e.g. 'e4') to (x_mm, y_mm) center coordinates."""
     file_idx = FILES.index(square[0])  # col: a=0, h=7
     rank = int(square[1])  # 1-8
-    row = square_count - rank  # row 0 = rank 8 (top)
+    row = rank - 1 if mirror_ranks else square_count - rank  # row 0 = rank 8 (top) unless mirrored
     return _square_center_mm(row, file_idx, square_size, gap_mm, origin_x, origin_y)
 
 
@@ -271,14 +272,13 @@ def _pick_and_carry(
     from_xy: tuple[float, float],
     to_xy: tuple[float, float],
     magnet_on_cmd: str,
+    magnet_off_cmd: str,
     engage_dwell: float,
+    release_dwell: float,
     move_feed_rate: int,
     comment: str = "",
 ) -> list[str]:
-    """Generate one pick-and-carry phase: rapid to source, magnet on, carry to target.
-
-    The caller must hardware-reset after sending these lines to kill the magnet.
-    """
+    """Generate one pick-and-carry phase: rapid to source, magnet on, carry, magnet off."""
     label = f" ; {comment}" if comment else ""
     lines = [
         f"G0 X{from_xy[0]:.2f} Y{from_xy[1]:.2f}{label}",
@@ -286,6 +286,7 @@ def _pick_and_carry(
     lines.extend(_magnet_on_gcode(magnet_on_cmd, engage_dwell))
     lines.append(f"G1 X{to_xy[0]:.2f} Y{to_xy[1]:.2f} F{move_feed_rate}")
     lines.append("G4 P0 ; sync — drain motion buffer")
+    lines.extend(_magnet_off_gcode(magnet_off_cmd, release_dwell))
     return lines
 
 
@@ -296,17 +297,17 @@ def generate_move_gcode(
     gap_mm: float = 2.0,
     origin_x: float = 0.0,
     origin_y: float = 0.0,
+    mirror_ranks: bool = False,
     magnet_on_cmd: str = "M3 S255",
+    magnet_off_cmd: str = "M3 S0\nM5",
     engage_dwell: float = 0.3,
+    release_dwell: float = 0.3,
     move_feed_rate: int = 3000,
     capture_x: float = -30.0,
     capture_y: float = 0.0,
     capture_spacing: float = 15.0,
 ) -> tuple[list[list[str]], dict]:
     """Generate G-code phases for a single chess move.
-
-    Each phase is a pick-and-carry that ends needing a hardware reset to
-    de-energize the electromagnet. The caller must reset between phases.
 
     Move types:
     - Normal: 1 phase (pick piece, carry to target)
@@ -322,7 +323,7 @@ def generate_move_gcode(
     phases: list[list[str]] = []
 
     def sq_mm(sq: str) -> tuple[float, float]:
-        return algebraic_to_mm(sq, square_size, gap_mm, origin_x, origin_y, square_count)
+        return algebraic_to_mm(sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
 
     from_xy = sq_mm(move.from_sq)
     to_xy = sq_mm(move.to_sq)
@@ -336,19 +337,19 @@ def generate_move_gcode(
             move.capture_index, capture_x, capture_y, capture_spacing
         )
         phase = [f"; En passant: discard pawn at {ep_square}"]
-        phase.extend(_pick_and_carry(ep_xy, discard_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"discard {ep_square}"))
+        phase.extend(_pick_and_carry(ep_xy, discard_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"discard {ep_square}"))
         phases.append(phase)
     elif "c" in move.flags:
         discard_xy = _capture_discard_position(
             move.capture_index, capture_x, capture_y, capture_spacing
         )
         phase = [f"; Capture: discard piece at {move.to_sq}"]
-        phase.extend(_pick_and_carry(to_xy, discard_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"discard {move.to_sq}"))
+        phase.extend(_pick_and_carry(to_xy, discard_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"discard {move.to_sq}"))
         phases.append(phase)
 
     # --- Move the piece ---
     phase = [f"; Move {move.piece} {move.from_sq} -> {move.to_sq}"]
-    phase.extend(_pick_and_carry(from_xy, to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"{move.piece} {move.from_sq}->{move.to_sq}"))
+    phase.extend(_pick_and_carry(from_xy, to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"{move.piece} {move.from_sq}->{move.to_sq}"))
     phases.append(phase)
 
     # --- Handle castling: also move the rook ---
@@ -357,14 +358,14 @@ def generate_move_gcode(
         rook_from_xy = sq_mm(f"h{rank}")
         rook_to_xy = sq_mm(f"f{rank}")
         phase = [f"; Kingside castle: rook h{rank} -> f{rank}"]
-        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"rook h{rank}->f{rank}"))
+        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"rook h{rank}->f{rank}"))
         phases.append(phase)
     elif "q" in move.flags:
         rank = move.from_sq[1]
         rook_from_xy = sq_mm(f"a{rank}")
         rook_to_xy = sq_mm(f"d{rank}")
         phase = [f"; Queenside castle: rook a{rank} -> d{rank}"]
-        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, engage_dwell, move_feed_rate, f"rook a{rank}->d{rank}"))
+        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"rook a{rank}->d{rank}"))
         phases.append(phase)
 
     total_lines = sum(len(p) for p in phases)
@@ -394,6 +395,7 @@ def generate_pick_place_demo_gcode(
     gap_mm: float = 2.0,
     origin_x: float = 0.0,
     origin_y: float = 0.0,
+    mirror_ranks: bool = False,
     magnet_on_cmd: str = "M3 S255",
     engage_dwell: float = 0.3,
     move_feed_rate: int = 3000,
@@ -410,8 +412,8 @@ def generate_pick_place_demo_gcode(
     """
     square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
 
-    from_xy = algebraic_to_mm(from_sq, square_size, gap_mm, origin_x, origin_y, square_count)
-    to_xy = algebraic_to_mm(to_sq, square_size, gap_mm, origin_x, origin_y, square_count)
+    from_xy = algebraic_to_mm(from_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
+    to_xy = algebraic_to_mm(to_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
 
     # Phase 1: pick up and carry (magnet stays on)
     carry: list[str] = [

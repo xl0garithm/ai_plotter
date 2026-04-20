@@ -448,6 +448,39 @@ def chess_demo_run() -> Response:
         return jsonify({"error": "Unexpected error during demo."}), 500
 
 
+@api_bp.post("/chess/home")
+def chess_home() -> Response:
+    """Home the chess robot carriage to X0/Y0 using rehome sequence."""
+    config = current_app.config
+
+    dry_run = config.get("PLOTTER_DRY_RUN", False)
+    if isinstance(dry_run, str):
+        dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
+
+    if dry_run:
+        return jsonify({"success": True, "dry_run": True})
+
+    try:
+        controller = PlotterController(
+            port=config["SERIAL_PORT"],
+            baudrate=config["SERIAL_BAUDRATE"],
+            timeout=config.get("SERIAL_TIMEOUT", 10.0),
+            line_delay=config.get("PLOTTER_LINE_DELAY", 0.1),
+        )
+        controller.connect()
+        try:
+            controller.rehome()
+        finally:
+            controller.disconnect()
+
+        return jsonify({"success": True})
+    except PlotterError as exc:
+        return jsonify({"error": str(exc)}), 500
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("Chess home failed: %s", exc)
+        return jsonify({"error": "Unexpected error during homing."}), 500
+
+
 @api_bp.post("/chess/pick-place-demo")
 def chess_pick_place_demo() -> Response:
     """Run a simple pick-and-place demo using hardware reset to kill the magnet.
@@ -475,6 +508,7 @@ def chess_pick_place_demo() -> Response:
         gap_mm=config.get("CHESS_GAP_MM", 2.0),
         origin_x=config.get("CHESS_ORIGIN_X_MM", 0.0),
         origin_y=config.get("CHESS_ORIGIN_Y_MM", 0.0),
+        mirror_ranks=config.get("CHESS_MIRROR_RANKS", False),
         magnet_on_cmd=config.get("CHESS_MAGNET_ON_GCODE", "M3 S255"),
         engage_dwell=config.get("CHESS_MAGNET_ENGAGE_DWELL_S", 0.3),
         move_feed_rate=config.get("CHESS_MOVE_FEED_RATE", 3000),
@@ -593,8 +627,11 @@ def chess_move() -> Response:
             gap_mm=config.get("CHESS_GAP_MM", 2.0),
             origin_x=config.get("CHESS_ORIGIN_X_MM", 0.0),
             origin_y=config.get("CHESS_ORIGIN_Y_MM", 0.0),
+            mirror_ranks=config.get("CHESS_MIRROR_RANKS", False),
             magnet_on_cmd=config.get("CHESS_MAGNET_ON_GCODE", "M3 S255"),
+            magnet_off_cmd=config.get("CHESS_MAGNET_OFF_GCODE", "M3 S0\nM5"),
             engage_dwell=config.get("CHESS_MAGNET_ENGAGE_DWELL_S", 0.3),
+            release_dwell=config.get("CHESS_MAGNET_RELEASE_DWELL_S", 0.3),
             move_feed_rate=config.get("CHESS_MOVE_FEED_RATE", 3000),
             capture_x=config.get("CHESS_CAPTURE_X_MM", -30.0),
             capture_y=config.get("CHESS_CAPTURE_Y_MM", 0.0),
@@ -607,10 +644,8 @@ def chess_move() -> Response:
 
     # Flatten for dry-run / response display
     all_lines: list[str] = []
-    for i, phase in enumerate(phases):
+    for phase in phases:
         all_lines.extend(phase)
-        if i < len(phases) - 1:
-            all_lines.append("; --- RESET (magnet off) ---")
 
     current_app.logger.info("Total G-code lines: %d", len(all_lines))
 
@@ -643,8 +678,9 @@ def chess_move() -> Response:
             for i, phase in enumerate(phases):
                 current_app.logger.info("Executing phase %d/%d...", i + 1, len(phases))
                 controller.send_gcode_lines(phase)
-                # Reset to kill magnet after each phase
-                controller.reset()
+            if config.get("CHESS_HOME_AFTER_MOVE", False):
+                current_app.logger.info("Homing after move (CHESS_HOME_AFTER_MOVE=true)")
+                controller.rehome()
             current_app.logger.info("All phases executed successfully")
         finally:
             controller.disconnect()
