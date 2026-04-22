@@ -19,17 +19,17 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     # Configure logging
     log_level = app.config.get("LOG_LEVEL", "DEBUG")
     log_format = app.config.get("LOG_FORMAT", "%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    
+
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level, logging.DEBUG))
-    
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(getattr(logging, log_level, logging.DEBUG))
     formatter = logging.Formatter(log_format)
     handler.setFormatter(formatter)
-    
+
     root_logger.addHandler(handler)
-    
+
     logging.info(f"Flask app logging configured at {log_level} level")
 
     # Ensure storage directories exist
@@ -39,9 +39,9 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     init_db(app.config["DATABASE_URL"])
 
     # Register blueprints
-    from blueprints.web import web_bp
     from blueprints.admin import admin_bp
     from blueprints.api import api_bp
+    from blueprints.web import web_bp
 
     app.register_blueprint(web_bp)
     app.register_blueprint(admin_bp)
@@ -51,4 +51,3 @@ def create_app(config_class: type[Config] = Config) -> Flask:
 
 
 app = create_app()
-

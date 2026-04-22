@@ -16,3 +16,4 @@ processed/*
 uploads/*
 Neo_Chess/node_modules/
 Neo_Chess/dist/
+Neo_Chess/storage/*.log

@@ -26,6 +26,17 @@ source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 ```
 
+**Raspberry Pi / headless / running as root (no `activate` needed):** from the repo root, use the project venv explicitly:
+
+```bash
+make setup-prod   # runtime only: requirements.txt into .venv
+# or: make setup  # developers: includes ruff, pytest (requirements-dev.txt)
+export FLASK_APP=app.py
+"$(pwd)/.venv/bin/flask" run --host=0.0.0.0 --port=5000
+```
+
+Lint and tests without activating the shell: `make lint`, `make test` (after `make setup`).
+
 Copy `env.example` to `.env` and adjust variables (see table below and **`env.example`**).
 
 **Neo_Chess (optional):**
@@ -48,6 +59,16 @@ Vite proxies `/api` to `http://127.0.0.1:5000`—run Flask on port 5000 in anoth
 export FLASK_APP=app.py
 flask run
 ```
+
+If you use `make setup` / `make setup-prod` and skip `activate`, call Flask by path or module:
+
+```bash
+export FLASK_APP=app.py
+"$(pwd)/.venv/bin/flask" run
+# or: "$(pwd)/.venv/bin/python" -m flask run
+```
+
+For LAN access from other devices (typical on a Pi), add `--host=0.0.0.0` or set `FLASK_RUN_HOST=0.0.0.0`.
 
 - `http://127.0.0.1:5000/` — caricature capture UI  
 - `http://127.0.0.1:5000/admin/` — admin  

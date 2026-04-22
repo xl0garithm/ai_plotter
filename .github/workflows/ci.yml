@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, chess_gtm]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, chess_gtm]
 
 jobs:
   test-and-lint:
@@ -32,3 +32,21 @@ jobs:
         run: |
           . .venv/bin/activate
           make test
+
+  neo-chess-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Neo_Chess/package-lock.json
+
+      - name: Install and typecheck
+        working-directory: Neo_Chess
+        run: |
+          npm ci
+          npm run check

@@ -1,50 +1,49 @@
 # CLAUDE.md
 
-Guidance for working with this repository (chess_gtm branch: chess only, no caricature/Gemini). App is **FastAPI** (not Flask).
+Guidance for working in this repository. The application is **Flask** ([`app.py`](app.py): `create_app()`, blueprints for web, admin, and API).
 
-## Build and Run
+## Build and run
+
+**Recommended (no shell activation; Raspberry Pi / root-friendly):** from repo root:
+
+```bash
+make setup-prod   # or make setup for dev deps (ruff, pytest)
+export FLASK_APP=app.py
+"$(pwd)/.venv/bin/flask" run --host=0.0.0.0 --port=5000
+```
+
+**Classic venv activate:**
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Build Neo_Chess front-end (required for /chess)
-cd Neo_Chess && npm install && npx vite build && cd ..
+# Neo_Chess: dev server proxies /api → Flask :5000
+cd Neo_Chess && npm ci && npm run dev
 
-uvicorn main:app --reload
+# In another terminal:
+export FLASK_APP=app.py
+flask run
 ```
+
+Production/static build: `cd Neo_Chess && npm run build` and serve `Neo_Chess/dist` under base path `/chess/` (see [`Neo_Chess/vite.config.ts`](Neo_Chess/vite.config.ts)).
 
 ## Testing and linting
 
-From `ai_plotter` with `.venv` activated:
+Uses `.venv/bin/python` automatically; run `make setup` first (installs `requirements-dev.txt`).
 
 ```bash
-pytest
-make test
-pytest tests/test_queue.py -v
-make lint   # ruff check + format check
-make fmt    # ruff format + ruff check --fix
+make fmt     # ruff format + ruff check --fix
+make lint    # ruff check + ruff format --check
+make test    # pytest via .venv
 ```
 
-Install dev deps for lint: `pip install -r requirements-dev.txt`. Tests need no hardware or `PLOTTER_DRY_RUN`.
+Tests use mocks and in-memory SQLite; no serial or Pi GPIO required.
 
 ## Environment
 
-Copy `env.example` to `.env`. Required:
-- `PLOTTER_SERIAL_PORT` – serial port for XY plotter (e.g. `/dev/ttyUSB0`, `COM3`)
-
-Optional: `PLOTTER_DRY_RUN=true` to skip serial and write G-code to `.dryrun.txt`.
-
-Chess play is fully offline. Set `STOCKFISH_PATH` if the engine is not on `PATH` (for `/chess-legacy` only).
-
-## Chess robot: physical assumptions
-
-- **Pieces:** Same height assumed (lifted piece clears board); no per-piece or per-type logic. Mixed heights risk collision—recommend uniform piece height or manual clearance check.
-- **Clearance:** No Z/lift in chess G-code; magnet at one height. Tall pieces may collide if they differ in height.
-- **Board and origin:** Physical board must match `CHESS_BOARD_SIZE_MM`, `CHESS_SQUARE_COUNT`, and origin; optionally `CHESS_DIMENSIONS_JSON` if used.
-- **Discard:** Capture discard at `origin - 1.5 * square_size`; ensure off-board and path clear.
-- **Magnet timing:** Magnet on for whole move; longest move time ≈ distance / rapid rate. Optional `CHESS_MAGNET_MAX_ON_S` and `CHESS_RAPID_FEED_MM_S` for max-on-time check/warning.
+Copy [`env.example`](env.example) to `.env`. See [`README.md`](README.md) for caricature, plotter, chess geometry, and **Raspberry Pi GPIO electromagnet** variables (`ELECTROMAGNET_*`).
 
 ## Architecture
 
@@ -53,83 +52,57 @@ flowchart TB
     subgraph Client [Client]
         Browser[Browser]
     end
-
-    subgraph FastAPI [FastAPI main.py]
-        Web[web router]
-        Admin[admin router]
-        API[api router]
+    subgraph FlaskApp [Flask app.py]
+        Web[web_bp]
+        Admin[admin_bp]
+        Api[api_bp]
     end
-
-    subgraph Services [Services]
-        Queue[queue.py]
-        ChessGame[chess_game.py]
-        Chess[chess.py]
-        Gcode[gcode.py]
-        Vectorizer[vectorizer.py]
-        Plotter[plotter.py]
+    subgraph Services [services]
+        Queue[queue]
+        Chess[chess]
+        Gcode[gcode]
+        Vectorizer[vectorizer]
+        Plotter[plotter]
+        Electromagnet[electromagnet]
+        Gemini[gemini_client]
     end
-
     subgraph Storage [Storage]
         DB[(SQLite)]
-        Files[storage/uploads, processed, gcode]
+        Files[storage uploads processed gcode]
     end
-
     Browser --> Web
     Browser --> Admin
-    Browser --> API
-    Web --> Templates[Jinja templates]
+    Browser --> Api
+    Web --> Queue
     Admin --> Queue
-    API --> Queue
-    API --> ChessGame
-    API --> Chess
+    Api --> Queue
+    Api --> Chess
+    Api --> Plotter
+    Api --> Electromagnet
+    Queue --> Gemini
     Queue --> Vectorizer
     Queue --> Gcode
     Queue --> Plotter
     Queue --> DB
     Chess --> Gcode
-    Chess --> Plotter
-    ChessGame --> Stockfish[Stockfish UCI]
 ```
 
-### Request flows
+### Request flows (high level)
 
-**Chess (Neo_Chess at /chess/)**
-
-- SPA served from `Neo_Chess/dist/public` via `SPAStaticFiles`.
-- Moves: `POST /api/chess/execute-move` with `{ uci, capture }` → `move_to_gcode` → `PlotterController.send_gcode_lines` (or dry-run).
-
-**Chess (Legacy at /chess-legacy)**
-
-- Template `chess.html` + Stockfish backend.
-- `POST /api/chess/play/setup` – init session.
-- `POST /api/chess/play/move` – apply move, optionally `execute` to plotter.
-- `POST /api/chess/print` – print board pattern.
-- `POST /api/chess/demo/run` – square traversal demo.
-
-**Job queue (Admin)**
-
-- Upload → `create_job_from_manual_upload` → vectorize → store.
-- Approve → `queue_for_printing` → `vector_data_to_gcode` → `start_print_job` → `PlotterController.send_gcode_lines`.
+- **Caricature:** `/` → upload → Gemini → vectorize → admin approve → print over serial.
+- **Chess API:** `/api/chess/move` (verbose chess.js payload), `/api/chess/execute-move` (UCI or `from`/`to`), board preview/print/demo routes in [`blueprints/api.py`](blueprints/api.py).
+- **Plotter:** [`services/plotter.py`](services/plotter.py) streams G-code; host-only `; @MAGNET_ON` / `; @MAGNET_OFF` lines toggle [`services/electromagnet.py`](services/electromagnet.py) when an instance is passed in.
 
 ### Key modules
 
-- **config.py**: Env-based config (dotenv loaded in main).
-- **dependencies.py**: `get_config`, admin cookie auth (`require_admin`, `require_admin_api`).
-- **queue.py**: Job lifecycle, vectorization, G-code generation, print orchestration.
-- **chess.py**: UCI→G-code for electromagnet moves; board SVG.
-- **plotter.py**: USB serial, `send_gcode_lines`, ACK handling.
+- [`config.py`](config.py): class-based `Config` from environment.
+- [`blueprints/web.py`](blueprints/web.py), [`blueprints/admin.py`](blueprints/admin.py), [`blueprints/api.py`](blueprints/api.py): HTTP surface.
+- [`services/queue.py`](services/queue.py): job lifecycle, vectorization, print orchestration.
+- [`services/chess.py`](services/chess.py): board vectors, move G-code, UCI helpers for execute-move.
+- [`services/plotter.py`](services/plotter.py): serial + ACK; magnet directives.
 
-### Chess UIs
+### Job status flow
 
-- `/chess` – Neo_Chess (React SPA, in-browser AI via chess.js, localStorage for history). Built from `Neo_Chess/` with `npx vite build`.
-- `/chess-legacy` – Legacy template (templates/chess.html) with Stockfish backend via `/api/chess/play/*`.
+`submitted` → `generating` → `generated` → `confirmed` → `approved` → `queued` → `printing` → `completed` (or `failed` / `cancelled`).
 
-### Job flow
-
-manual upload → `generated` → `confirmed` → `approved` → `queued` → `printing` → `completed` (or `failed`/`cancelled`).
-
-SQLite: `storage/app.db`. Storage under `storage/`: `uploads/`, `processed/`, `gcode/`.
-
-## Known issues
-
-- **Front-end vertical scroller on `/chess-legacy` is broken**: the legacy chess page should show a vertical scrollbar when content exceeds the viewport; multiple layout/CSS fixes have been tried but the scrollbar still does not appear in some environments.
+SQLite: `storage/app.db`. Directories: `storage/uploads`, `storage/processed`, `storage/gcode`.

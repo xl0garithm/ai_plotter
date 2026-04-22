@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 
@@ -35,7 +34,7 @@ class GeminiClient:
     timeout: int = 60
     max_attempts: int = 2
 
-    def generate_caricature(self, image_bytes: bytes, prompt: Optional[str] = None) -> bytes:
+    def generate_caricature(self, image_bytes: bytes, prompt: str | None = None) -> bytes:
         """Generate a caricature image using the Gemini API."""
         if not self.api_key:
             raise GeminiClientError("Gemini API key is not configured.")
@@ -62,7 +61,7 @@ class GeminiClient:
             ]
         }
 
-        last_error: Optional[GeminiClientError] = None
+        last_error: GeminiClientError | None = None
 
         for _ in range(max(1, self.max_attempts)):
             try:
@@ -101,7 +100,7 @@ class GeminiClient:
         return response.json()
 
     @staticmethod
-    def _extract_inline_image(response_data: dict) -> Optional[str]:
+    def _extract_inline_image(response_data: dict) -> str | None:
         """Find the first inlineData entry containing base64 image data."""
         candidates = response_data.get("candidates") or []
         for candidate in candidates:
@@ -114,4 +113,3 @@ class GeminiClient:
                     if data:
                         return data
         return None
-

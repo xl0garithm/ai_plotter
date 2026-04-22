@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from flask import (
     Blueprint,
     Response,
@@ -11,9 +14,6 @@ from flask import (
     send_file,
     session,
 )
-
-import tempfile
-from pathlib import Path
 
 from services.chess import (
     ChessMoveData,
@@ -29,7 +29,7 @@ from services.chess import (
     plotter_uci_legs,
 )
 from services.electromagnet import create_electromagnet_from_mapping
-from services.gcode import vector_data_to_gcode, GCodeSettings, GCodeError
+from services.gcode import GCodeError, GCodeSettings, vector_data_to_gcode
 from services.gemini_client import GeminiClient, GeminiClientError
 from services.plotter import PlotterController, PlotterError
 from services.queue import (
@@ -74,15 +74,17 @@ def health_check() -> Response:
     dry_run = config.get("PLOTTER_DRY_RUN", False)
     if isinstance(dry_run, str):
         dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
-    
+
     current_app.logger.info("Health check requested")
-    
-    return jsonify({
-        "status": "ok",
-        "dry_run": dry_run,
-        "serial_port": config.get("SERIAL_PORT", "not configured"),
-        "chess_board_size_mm": config.get("CHESS_BOARD_SIZE_MM", 215.9),
-    })
+
+    return jsonify(
+        {
+            "status": "ok",
+            "dry_run": dry_run,
+            "serial_port": config.get("SERIAL_PORT", "not configured"),
+            "chess_board_size_mm": config.get("CHESS_BOARD_SIZE_MM", 215.9),
+        }
+    )
 
 
 @api_bp.post("/jobs")
@@ -267,9 +269,7 @@ def chess_print() -> Response:
         )
 
         # Generate G-code to temp file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".gcode", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".gcode", delete=False) as tmp:
             gcode_path = Path(tmp.name)
 
         stats = vector_data_to_gcode(vector_data, gcode_path, settings)
@@ -281,14 +281,16 @@ def chess_print() -> Response:
 
         if dry_run:
             gcode_path.unlink(missing_ok=True)
-            return jsonify({
-                "success": True,
-                "dry_run": True,
-                "stats": {
-                    "path_count": stats.path_count,
-                    "estimated_seconds": round(stats.estimated_seconds, 1),
-                },
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "dry_run": True,
+                    "stats": {
+                        "path_count": stats.path_count,
+                        "estimated_seconds": round(stats.estimated_seconds, 1),
+                    },
+                }
+            )
 
         # Send to plotter
         controller = PlotterController(
@@ -303,13 +305,15 @@ def chess_print() -> Response:
             with gcode_path.open("r", encoding="utf-8") as f:
                 gcode_lines = f.readlines()
             controller.send_gcode_lines(gcode_lines)
-            return jsonify({
-                "success": True,
-                "stats": {
-                    "path_count": stats.path_count,
-                    "estimated_seconds": round(stats.estimated_seconds, 1),
-                },
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "stats": {
+                        "path_count": stats.path_count,
+                        "estimated_seconds": round(stats.estimated_seconds, 1),
+                    },
+                }
+            )
         finally:
             controller.disconnect()
             gcode_path.unlink(missing_ok=True)
@@ -384,9 +388,7 @@ def chess_execute_move() -> Response:
         to_sq = (data.get("to") or "").strip().lower()
 
         if len(from_sq) != 2 or len(to_sq) != 2:
-            return jsonify(
-                {"error": "Provide from/to squares or a uci field (e.g. e2e4)."}
-            ), 400
+            return jsonify({"error": "Provide from/to squares or a uci field (e.g. e2e4)."}), 400
 
         try:
             gcode_lines = generate_piece_move_gcode(
@@ -408,11 +410,13 @@ def chess_execute_move() -> Response:
         dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
 
     if dry_run:
-        return jsonify({
-            "success": True,
-            "dry_run": True,
-            "gcode_lines": gcode_lines,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "dry_run": True,
+                "gcode_lines": gcode_lines,
+            }
+        )
 
     electromagnet = create_electromagnet_from_mapping(config)
     try:
@@ -459,11 +463,13 @@ def chess_demo_run() -> Response:
         dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
 
     if dry_run:
-        return jsonify({
-            "success": True,
-            "dry_run": True,
-            "stats": stats,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "dry_run": True,
+                "stats": stats,
+            }
+        )
 
     try:
         controller = PlotterController(
@@ -478,10 +484,12 @@ def chess_demo_run() -> Response:
         finally:
             controller.disconnect()
 
-        return jsonify({
-            "success": True,
-            "stats": stats,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "stats": stats,
+            }
+        )
     except PlotterError as exc:
         return jsonify({"error": str(exc)}), 500
     except Exception as exc:  # noqa: BLE001
@@ -562,12 +570,14 @@ def chess_pick_place_demo() -> Response:
         dry_run = dry_run.lower() in {"1", "true", "yes", "on"}
 
     if dry_run:
-        return jsonify({
-            "success": True,
-            "dry_run": True,
-            "stats": stats,
-            "gcode_lines": all_lines,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "dry_run": True,
+                "stats": stats,
+                "gcode_lines": all_lines,
+            }
+        )
 
     try:
         controller = PlotterController(
@@ -587,11 +597,13 @@ def chess_pick_place_demo() -> Response:
         finally:
             controller.disconnect()
 
-        return jsonify({
-            "success": True,
-            "stats": stats,
-            "gcode_lines": all_lines,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "stats": stats,
+                "gcode_lines": all_lines,
+            }
+        )
     except PlotterError as exc:
         return jsonify({"error": str(exc)}), 500
     except Exception as exc:  # noqa: BLE001
@@ -607,12 +619,12 @@ def chess_move() -> Response:
     """
     config = current_app.config
     data = request.get_json(silent=True)
-    
+
     current_app.logger.info("=" * 50)
     current_app.logger.info("CHESS MOVE REQUEST RECEIVED")
     current_app.logger.info("=" * 50)
     current_app.logger.info("Request data: %s", data)
-    
+
     if not data:
         current_app.logger.warning("No JSON body in request")
         return jsonify({"error": "JSON body required."}), 400
@@ -627,8 +639,16 @@ def chess_move() -> Response:
     promotion = data.get("promotion") or None
     capture_index = data.get("capture_index", 0)
 
-    current_app.logger.info("Parsed move: %s %s -> %s (color: %s, flags: '%s', captured: %s, promotion: %s)",
-                          piece, from_sq, to_sq, color, flags, captured, promotion)
+    current_app.logger.info(
+        "Parsed move: %s %s -> %s (color: %s, flags: '%s', captured: %s, promotion: %s)",
+        piece,
+        from_sq,
+        to_sq,
+        color,
+        flags,
+        captured,
+        promotion,
+    )
 
     if not from_sq or not to_sq:
         current_app.logger.warning("Missing from/to squares: from='%s', to='%s'", from_sq, to_sq)
@@ -699,12 +719,14 @@ def chess_move() -> Response:
     if dry_run:
         current_app.logger.info("DRY RUN - returning G-code without executing")
         current_app.logger.info("G-code preview (first 10 lines):\n%s", "\n".join(all_lines[:10]))
-        return jsonify({
-            "success": True,
-            "dry_run": True,
-            "stats": stats,
-            "gcode_lines": all_lines,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "dry_run": True,
+                "stats": stats,
+                "gcode_lines": all_lines,
+            }
+        )
 
     try:
         current_app.logger.info("Connecting to plotter on port: %s", config["SERIAL_PORT"])
@@ -728,11 +750,13 @@ def chess_move() -> Response:
             current_app.logger.info("Plotter disconnected")
 
         current_app.logger.info("CHESS MOVE COMPLETED SUCCESSFULLY")
-        return jsonify({
-            "success": True,
-            "stats": stats,
-            "gcode_lines": all_lines,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "stats": stats,
+                "gcode_lines": all_lines,
+            }
+        )
     except PlotterError as exc:
         current_app.logger.error("Plotter error: %s", exc)
         return jsonify({"error": str(exc)}), 500

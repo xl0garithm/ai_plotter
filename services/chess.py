@@ -5,12 +5,11 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 from services.electromagnet import MAGNET_GCODE_OFF, MAGNET_GCODE_ON
 from services.vectorizer import VectorData
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 FILES = "abcdefgh"
 
@@ -23,9 +22,9 @@ class ChessMoveData:
     to_sq: str  # e.g. "e4"
     piece: str  # p, n, b, r, q, k
     color: str  # w or b
-    captured: Optional[str]  # piece type captured, or None
+    captured: str | None  # piece type captured, or None
     flags: str  # chess.js flags: n=normal, b=pawn push, e=en passant, c=capture, k=kingside castle, q=queenside castle
-    promotion: Optional[str]  # piece type promoted to, or None
+    promotion: str | None  # piece type promoted to, or None
     capture_index: int = 0  # Nth captured piece (for discard positioning)
 
 
@@ -44,17 +43,19 @@ def generate_chess_board(
     Returns:
         VectorData with paths for grid lines and hatching.
     """
-    paths: List[List[Point]] = []
+    paths: list[list[Point]] = []
     square_size = board_size / squares
 
     # Board outline
-    paths.append([
-        (0.0, 0.0),
-        (float(board_size), 0.0),
-        (float(board_size), float(board_size)),
-        (0.0, float(board_size)),
-        (0.0, 0.0),
-    ])
+    paths.append(
+        [
+            (0.0, 0.0),
+            (float(board_size), 0.0),
+            (float(board_size), float(board_size)),
+            (0.0, float(board_size)),
+            (0.0, 0.0),
+        ]
+    )
 
     # Vertical grid lines
     for i in range(1, squares):
@@ -83,9 +84,9 @@ def _generate_hatch_lines(
     y0: float,
     size: float,
     spacing: float,
-) -> List[List[Point]]:
+) -> list[list[Point]]:
     """Generate diagonal hatching lines within a square at 45 degrees."""
-    paths: List[List[Point]] = []
+    paths: list[list[Point]] = []
 
     # Generate lines from bottom-left to top-right (45 degree angle)
     # Lines are perpendicular to the direction (1, 1), so they run from
@@ -121,7 +122,7 @@ def _clip_diagonal_to_square(
     y0: float,
     size: float,
     offset: float,
-) -> List[Point]:
+) -> list[Point]:
     """Clip a 45-degree diagonal line to a square.
 
     The line satisfies: (x - x0) + (y - y0) = offset
@@ -132,7 +133,7 @@ def _clip_diagonal_to_square(
     x1 = x0 + size
     y1 = y0 + size
 
-    intersections: List[Point] = []
+    intersections: list[Point] = []
 
     # Check intersection with left edge (x = x0)
     y_at_left = y0 + offset
@@ -155,7 +156,7 @@ def _clip_diagonal_to_square(
         intersections.append((x_at_top, y1))
 
     # Remove duplicates (corners) and ensure we have exactly 2 points
-    unique: List[Point] = []
+    unique: list[Point] = []
     for pt in intersections:
         is_dup = False
         for existing in unique:
@@ -416,7 +417,9 @@ def generate_move_gcode(
     phases: list[list[str]] = []
 
     def sq_mm(sq: str) -> tuple[float, float]:
-        return algebraic_to_mm(sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
+        return algebraic_to_mm(
+            sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks
+        )
 
     from_xy = sq_mm(move.from_sq)
     to_xy = sq_mm(move.to_sq)
@@ -430,19 +433,52 @@ def generate_move_gcode(
             move.capture_index, capture_x, capture_y, capture_spacing
         )
         phase = [f"; En passant: discard pawn at {ep_square}"]
-        phase.extend(_pick_and_carry(ep_xy, discard_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"discard {ep_square}"))
+        phase.extend(
+            _pick_and_carry(
+                ep_xy,
+                discard_xy,
+                magnet_on_cmd,
+                magnet_off_cmd,
+                engage_dwell,
+                release_dwell,
+                move_feed_rate,
+                f"discard {ep_square}",
+            )
+        )
         phases.append(phase)
     elif "c" in move.flags:
         discard_xy = _capture_discard_position(
             move.capture_index, capture_x, capture_y, capture_spacing
         )
         phase = [f"; Capture: discard piece at {move.to_sq}"]
-        phase.extend(_pick_and_carry(to_xy, discard_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"discard {move.to_sq}"))
+        phase.extend(
+            _pick_and_carry(
+                to_xy,
+                discard_xy,
+                magnet_on_cmd,
+                magnet_off_cmd,
+                engage_dwell,
+                release_dwell,
+                move_feed_rate,
+                f"discard {move.to_sq}",
+            )
+        )
         phases.append(phase)
 
     # --- Move the piece ---
     phase = [f"; Move {move.piece} {move.from_sq} -> {move.to_sq}"]
-    phase.extend(_pick_and_carry(from_xy, to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"{move.piece} {move.from_sq}->{move.to_sq}"))
+    phase.extend(
+        _pick_and_carry(
+            from_xy,
+            to_xy,
+            magnet_on_cmd,
+            magnet_off_cmd,
+            engage_dwell,
+            release_dwell,
+            move_feed_rate,
+            f"{move.piece} {move.from_sq}->{move.to_sq}",
+        )
+    )
     phases.append(phase)
 
     # --- Handle castling: also move the rook ---
@@ -451,14 +487,36 @@ def generate_move_gcode(
         rook_from_xy = sq_mm(f"h{rank}")
         rook_to_xy = sq_mm(f"f{rank}")
         phase = [f"; Kingside castle: rook h{rank} -> f{rank}"]
-        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"rook h{rank}->f{rank}"))
+        phase.extend(
+            _pick_and_carry(
+                rook_from_xy,
+                rook_to_xy,
+                magnet_on_cmd,
+                magnet_off_cmd,
+                engage_dwell,
+                release_dwell,
+                move_feed_rate,
+                f"rook h{rank}->f{rank}",
+            )
+        )
         phases.append(phase)
     elif "q" in move.flags:
         rank = move.from_sq[1]
         rook_from_xy = sq_mm(f"a{rank}")
         rook_to_xy = sq_mm(f"d{rank}")
         phase = [f"; Queenside castle: rook a{rank} -> d{rank}"]
-        phase.extend(_pick_and_carry(rook_from_xy, rook_to_xy, magnet_on_cmd, magnet_off_cmd, engage_dwell, release_dwell, move_feed_rate, f"rook a{rank}->d{rank}"))
+        phase.extend(
+            _pick_and_carry(
+                rook_from_xy,
+                rook_to_xy,
+                magnet_on_cmd,
+                magnet_off_cmd,
+                engage_dwell,
+                release_dwell,
+                move_feed_rate,
+                f"rook a{rank}->d{rank}",
+            )
+        )
         phases.append(phase)
 
     total_lines = sum(len(p) for p in phases)
@@ -505,8 +563,12 @@ def generate_pick_place_demo_gcode(
     """
     square_size = (board_size_mm - (square_count + 1) * gap_mm) / square_count
 
-    from_xy = algebraic_to_mm(from_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
-    to_xy = algebraic_to_mm(to_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks)
+    from_xy = algebraic_to_mm(
+        from_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks
+    )
+    to_xy = algebraic_to_mm(
+        to_sq, square_size, gap_mm, origin_x, origin_y, square_count, mirror_ranks
+    )
 
     # Phase 1: pick up and carry (magnet stays on)
     carry: list[str] = [
@@ -557,7 +619,9 @@ def generate_chess_demo_gcode(
     total_squares = square_count * square_count
     lines: list[str] = []
 
-    lines.append(f"; Chess demo: {total_squares} squares, {square_size:.2f}mm each, {gap_mm:.1f}mm gap")
+    lines.append(
+        f"; Chess demo: {total_squares} squares, {square_size:.2f}mm each, {gap_mm:.1f}mm gap"
+    )
     # Ensure magnet off at start
     for part in magnet_off_cmd.split("\n"):
         part = part.strip()
@@ -590,7 +654,7 @@ def generate_chess_demo_gcode(
             total_travel_mm += math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
             prev_x, prev_y = x, y
     # Return home
-    total_travel_mm += math.sqrt(prev_x ** 2 + prev_y ** 2)
+    total_travel_mm += math.sqrt(prev_x**2 + prev_y**2)
 
     travel_time_s = total_travel_mm / 100.0
     dwell_time_s = total_squares * (tap_dwell_s + 0.05) + 2.0
@@ -644,7 +708,6 @@ def generate_chess_demo_svg(
 
     # Draw alternating light/dark squares with gap offsets
     sq_px = square_size * scale
-    gap_px = gap_mm * scale
     for row in range(square_count):
         for col in range(square_count):
             sx = margin + (gap_mm + col * (square_size + gap_mm)) * scale
@@ -664,7 +727,7 @@ def generate_chess_demo_svg(
         parts.append(
             f'<text x="{cx:.1f}" y="{total_size - 4}" '
             f'text-anchor="middle" fill="#555" font-size="11">'
-            f'{files[col] if col < len(files) else col}</text>'
+            f"{files[col] if col < len(files) else col}</text>"
         )
 
     # Rank labels (8-1) along left
@@ -675,7 +738,7 @@ def generate_chess_demo_svg(
         parts.append(
             f'<text x="{margin - 6}" y="{cy + 4:.1f}" '
             f'text-anchor="end" fill="#555" font-size="11">'
-            f'{rank}</text>'
+            f"{rank}</text>"
         )
 
     # Numbered dots at each square center (traversal order)
@@ -747,7 +810,7 @@ def algebraic_square_to_center_mm(
     square_count: int,
     origin_x: float,
     origin_y: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Map a square like ``e4`` to machine coordinates at the square center (mm).
 
     Layout matches :func:`generate_chess_demo_gcode`: row 0 is rank *square_count*,
@@ -792,9 +855,7 @@ def generate_piece_move_gcode(
     fx, fy = algebraic_square_to_center_mm(
         from_alg, board_size_mm, square_count, origin_x, origin_y
     )
-    tx, ty = algebraic_square_to_center_mm(
-        to_alg, board_size_mm, square_count, origin_x, origin_y
-    )
+    tx, ty = algebraic_square_to_center_mm(to_alg, board_size_mm, square_count, origin_x, origin_y)
 
     lines: list[str] = [
         f"; piece move {from_alg}->{to_alg}",

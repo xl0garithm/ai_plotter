@@ -17,4 +17,3 @@ def index():
 def chess():
     """Render chess board drawing interface."""
     return render_template("chess.html")
-

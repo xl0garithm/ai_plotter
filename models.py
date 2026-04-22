@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from sqlalchemy import Column, DateTime, Integer, JSON, String, Text
+from sqlalchemy import JSON, Column, DateTime, Integer, String, Text
 from sqlalchemy.ext.mutable import MutableDict
 
 from services.database import Base
+
+
+def utc_now() -> datetime:
+    """Timezone-aware UTC for SQLAlchemy defaults (replaces deprecated utcnow)."""
+    return datetime.now(timezone.utc)
 
 
 class Job(Base):
@@ -29,16 +34,16 @@ class Job(Base):
     retry_count = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     metadata_json = Column("metadata", MutableDict.as_mutable(JSON), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    confirmed_at = Column(DateTime, nullable=True)
-    approved_at = Column(DateTime, nullable=True)
-    started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
 
-    def to_dict(self, *, admin: bool = False) -> Dict[str, Any]:
+    def to_dict(self, *, admin: bool = False) -> dict[str, Any]:
         """Serialize the job for JSON responses."""
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "id": self.id,
             "status": self.status,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -73,4 +78,3 @@ class Job(Base):
             data["asset_filename"] = asset_filename
 
         return data
-

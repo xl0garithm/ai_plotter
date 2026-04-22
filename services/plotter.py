@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable, Optional
 
 import serial
 
 from services.electromagnet import ElectromagnetBase, parse_magnet_directive
+
 
 # ----- Exceptions -----
 class PlotterError(RuntimeError):
@@ -26,7 +27,7 @@ def _open_serial(port: str, baudrate: int, timeout: float) -> serial.Serial:
     return ser
 
 
-def _wait_for_ack(ser: serial.Serial, ack: str, timeout: float) -> Optional[str]:
+def _wait_for_ack(ser: serial.Serial, ack: str, timeout: float) -> str | None:
     """
     Read from *ser* until a line containing *ack* is seen or *timeout*
     seconds have elapsed. Matching is case-insensitive and whitespace-trimmed.
@@ -85,9 +86,7 @@ def _send_line_and_wait(
     attempt = 0
     while attempt <= retries:
         attempt += 1
-        logging.info(
-            "Sending (attempt %d/%d): %s", attempt, retries + 1, line.rstrip("\r\n")
-        )
+        logging.info("Sending (attempt %d/%d): %s", attempt, retries + 1, line.rstrip("\r\n"))
         try:
             ser.write(encoded)
             ser.flush()
@@ -103,13 +102,9 @@ def _send_line_and_wait(
             logging.info("ACK received: %s", resp)
             return True
         else:
-            logging.warning(
-                "No ACK within %.1f s (attempt %d/%d).", timeout, attempt, retries + 1
-            )
+            logging.warning("No ACK within %.1f s (attempt %d/%d).", timeout, attempt, retries + 1)
 
-    logging.error(
-        "Exceeded %d retries without ACK for line: %s", retries, line.rstrip("\r\n")
-    )
+    logging.error("Exceeded %d retries without ACK for line: %s", retries, line.rstrip("\r\n"))
     return False
 
 
@@ -146,7 +141,7 @@ class PlotterController:
         self.send_retries = send_retries
         self.ack = ack
 
-        self._serial: Optional[serial.Serial] = None
+        self._serial: serial.Serial | None = None
         self._cancel_requested = False
 
     # --- connection lifecycle ---
@@ -229,8 +224,8 @@ class PlotterController:
         self,
         lines: Iterable[str],
         *,
-        progress_callback: Optional[Callable[[int], None]] = None,
-        electromagnet: Optional["ElectromagnetBase"] = None,
+        progress_callback: Callable[[int], None] | None = None,
+        electromagnet: ElectromagnetBase | None = None,
     ) -> None:
         """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling.
 
@@ -255,7 +250,9 @@ class PlotterController:
             if magnet_action is not None:
                 idx += 1
                 if electromagnet is None:
-                    logging.debug("Skipping host magnet directive (no electromagnet): %s", magnet_action)
+                    logging.debug(
+                        "Skipping host magnet directive (no electromagnet): %s", magnet_action
+                    )
                 elif magnet_action == "on":
                     electromagnet.full_on()
                 else:
@@ -293,7 +290,7 @@ class PlotterController:
         self,
         file_path: Path,
         *,
-        progress_callback: Optional[Callable[[int], None]] = None,
+        progress_callback: Callable[[int], None] | None = None,
     ) -> None:
         """Send a G-code file to the plotter."""
         if not file_path.exists():

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +108,7 @@ def create_electromagnet_from_mapping(config: Mapping[str, Any]) -> Electromagne
     )
 
 
-def parse_magnet_directive(line: str) -> Optional[str]:
+def parse_magnet_directive(line: str) -> str | None:
     """Return ``\"on\"``, ``\"off\"``, or ``None`` for host-only magnet lines."""
     raw = line.strip()
     if not raw:

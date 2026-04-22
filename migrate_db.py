@@ -30,4 +30,3 @@ def ensure_email_column() -> None:
 
 if __name__ == "__main__":
     ensure_email_column()
-
