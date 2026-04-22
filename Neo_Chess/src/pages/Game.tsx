@@ -98,6 +98,7 @@ export default function Game() {
   const gameMode = (localStorage.getItem("gameMode") as GameMode) || "pvai";
   const difficulty = (localStorage.getItem("difficulty") as Difficulty) || "medium";
   const voiceStyle = (localStorage.getItem("voiceStyle") as "harsh" | "sweet") || "harsh";
+  const boardStyle = (localStorage.getItem("boardStyle") as "2d" | "3d") || "3d";
 
   const whiteName = playerName;
   const blackName = gameMode === "pvp" ? opponentName : gameMode === "aivai" ? "CORTEX-A" : "Storm AI";
@@ -309,7 +310,7 @@ export default function Game() {
       </div>
 
       {/* BOARD */}
-      <Board gameState={gameState} onSquareClick={selectSquare} />
+      <Board gameState={gameState} onSquareClick={selectSquare} boardStyle={boardStyle} />
 
       {/* TURN LABEL */}
       <div className="mt-4 text-sm font-mono tracking-widest text-muted-foreground">
