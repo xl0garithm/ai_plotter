@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import Callable, Iterable, Optional
 
 import serial
 
+from services.electromagnet import ElectromagnetBase, parse_magnet_directive
 
 # ----- Exceptions -----
 class PlotterError(RuntimeError):
@@ -24,7 +26,7 @@ def _open_serial(port: str, baudrate: int, timeout: float) -> serial.Serial:
     return ser
 
 
-def _wait_for_ack(ser: serial.Serial, ack: str, timeout: float) -> str | None:
+def _wait_for_ack(ser: serial.Serial, ack: str, timeout: float) -> Optional[str]:
     """
     Read from *ser* until a line containing *ack* is seen or *timeout*
     seconds have elapsed. Matching is case-insensitive and whitespace-trimmed.
@@ -83,7 +85,9 @@ def _send_line_and_wait(
     attempt = 0
     while attempt <= retries:
         attempt += 1
-        logging.info("Sending (attempt %d/%d): %s", attempt, retries + 1, line.rstrip("\r\n"))
+        logging.info(
+            "Sending (attempt %d/%d): %s", attempt, retries + 1, line.rstrip("\r\n")
+        )
         try:
             ser.write(encoded)
             ser.flush()
@@ -99,9 +103,13 @@ def _send_line_and_wait(
             logging.info("ACK received: %s", resp)
             return True
         else:
-            logging.warning("No ACK within %.1f s (attempt %d/%d).", timeout, attempt, retries + 1)
+            logging.warning(
+                "No ACK within %.1f s (attempt %d/%d).", timeout, attempt, retries + 1
+            )
 
-    logging.error("Exceeded %d retries without ACK for line: %s", retries, line.rstrip("\r\n"))
+    logging.error(
+        "Exceeded %d retries without ACK for line: %s", retries, line.rstrip("\r\n")
+    )
     return False
 
 
@@ -138,7 +146,7 @@ class PlotterController:
         self.send_retries = send_retries
         self.ack = ack
 
-        self._serial: serial.Serial | None = None
+        self._serial: Optional[serial.Serial] = None
         self._cancel_requested = False
 
     # --- connection lifecycle ---
@@ -174,6 +182,16 @@ class PlotterController:
             finally:
                 self._serial = None
         self._cancel_requested = False
+
+    def reset(self) -> None:
+        """Toggle DTR to reset the Arduino, killing all outputs (including PWM).
+
+        Disconnects and reconnects the serial port, which toggles DTR and
+        forces a hardware reset. This is the only reliable way to fully
+        de-energize the electromagnet on some GRBL builds.
+        """
+        self.disconnect()
+        self.connect()
 
     def request_cancel(self) -> None:
         """Signal that the current streaming operation should stop."""
@@ -211,21 +229,47 @@ class PlotterController:
         self,
         lines: Iterable[str],
         *,
-        progress_callback: Callable[[int], None] | None = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        electromagnet: Optional["ElectromagnetBase"] = None,
     ) -> None:
-        """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling."""
+        """Send G-code lines to the plotter, using _send_line_and_wait for ACK handling.
+
+        Lines ``; @MAGNET_ON`` / ``; @MAGNET_OFF`` are host-only: they toggle the
+        optional *electromagnet* after the previous command has ACKed, and are not
+        sent over serial. If *electromagnet* is omitted, directives are skipped
+        (logged at debug).
+        """
         self._ensure_connection()
         self._cancel_requested = False
         assert self._serial is not None  # for type checkers
 
-        for idx, raw_line in enumerate(lines, start=1):
-            # mirror behaviour of reference: strip CR/LF then re-append single LF
-            line = raw_line.rstrip("\r\n") + "\n"
-            if not line.strip():
+        idx = 0
+        for raw_line in lines:
+            if not raw_line.strip():
                 continue  # skip blank lines
 
             if self._cancel_requested:
                 raise PlotterError("Transmission cancelled by user.")
+
+            magnet_action = parse_magnet_directive(raw_line)
+            if magnet_action is not None:
+                idx += 1
+                if electromagnet is None:
+                    logging.debug("Skipping host magnet directive (no electromagnet): %s", magnet_action)
+                elif magnet_action == "on":
+                    electromagnet.full_on()
+                else:
+                    electromagnet.off()
+                if progress_callback:
+                    try:
+                        progress_callback(idx)
+                    except Exception:
+                        logging.debug("Progress callback failed", exc_info=True)
+                continue
+
+            idx += 1
+            # mirror behaviour of reference: strip CR/LF then re-append single LF
+            line = raw_line.rstrip("\r\n") + "\n"
 
             logging.info("SEND: %s", line.rstrip("\r\n"))
             ok = _send_line_and_wait(
@@ -244,6 +288,19 @@ class PlotterController:
                     progress_callback(idx)
                 except Exception:
                     logging.debug("Progress callback failed", exc_info=True)
+
+    def send_gcode_file(
+        self,
+        file_path: Path,
+        *,
+        progress_callback: Optional[Callable[[int], None]] = None,
+    ) -> None:
+        """Send a G-code file to the plotter."""
+        if not file_path.exists():
+            raise PlotterError(f"G-code file '{file_path}' not found.")
+        with file_path.open("r", encoding="utf-8") as fp:
+            # stream lines directly to preserve memory characteristics
+            self.send_gcode_lines(fp, progress_callback=progress_callback)
 
     # --- low-level helpers ---
     def _flush_startup(self) -> None:

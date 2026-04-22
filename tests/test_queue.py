@@ -46,7 +46,7 @@ def test_job_lifecycle(monkeypatch, test_storage, sample_upload):
         def rehome(self):
             self.rehome_called = True
 
-        def send_gcode_lines(self, lines, *, progress_callback=None):
+        def send_gcode_lines(self, lines, *, progress_callback=None, electromagnet=None):
             for idx, line in enumerate(lines, start=1):
                 sent_lines.append(line)
                 if progress_callback:
@@ -130,7 +130,7 @@ def test_print_job_rehomes_when_flagged(monkeypatch, test_storage, sample_upload
         def rehome(self):
             self.rehome_called = True
 
-        def send_gcode_lines(self, lines, *, progress_callback=None):
+        def send_gcode_lines(self, lines, *, progress_callback=None, electromagnet=None):
             for idx, _ in enumerate(lines, start=1):
                 if progress_callback:
                     progress_callback(idx)

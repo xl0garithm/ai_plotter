@@ -1,17 +1,23 @@
 """Tests for chess UCI → mm mapping and execute-move G-code (README physical assumptions)."""
 
 import pytest
-from fastapi.testclient import TestClient
 
-from main import NEO_CHESS_DIR, app
+from app import create_app
 from services.chess import move_to_gcode, plotter_uci_legs, uci_square_to_mm
+
+
+@pytest.fixture
+def flask_client():
+    app = create_app()
+    app.config.update(TESTING=True, PLOTTER_DRY_RUN=True)
+    with app.test_client() as c:
+        yield c
 
 
 def test_uci_square_to_mm_standard_board_matches_rank_formula():
     board_mm = 200.0
     n = 8
     sq = board_mm / n
-    # e4: file e = index 4, rank 4
     x, y = uci_square_to_mm("e", "4", board_mm, n, 0.0, 0.0)
     assert abs(x - 4.5 * sq) < 1e-6
     assert abs(y - (n + 0.5 - 4) * sq) < 1e-6
@@ -83,50 +89,36 @@ def test_move_to_gcode_capture_includes_discard():
     assert f"X{discard_x:.2f}" in text
 
 
-def test_api_health():
-    with TestClient(app) as client:
-        r = client.get("/api/health")
-        assert r.status_code == 200
-        assert r.json() == {"status": "ok"}
-
-
-@pytest.mark.skipif(not NEO_CHESS_DIR.is_dir(), reason="Run Neo_Chess vite build for SPA mount")
-def test_chess_spa_index_when_dist_built():
-    with TestClient(app) as client:
-        r = client.get("/chess/")
-        assert r.status_code == 200
-        assert "html" in r.text.lower()
-
-
-def test_chess_execute_move_ok_when_plotter_dry_run(monkeypatch):
-    """README: use PLOTTER_DRY_RUN for no serial; Neo_Chess execute-move must not require hardware."""
-    monkeypatch.setenv("PLOTTER_DRY_RUN", "true")
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/chess/execute-move",
-            json={"uci": "e2e4", "capture": False},
-        )
+def test_api_health(flask_client):
+    r = flask_client.get("/api/health")
     assert r.status_code == 200
-    body = r.json()
+    body = r.get_json()
+    assert body.get("status") == "ok"
+
+
+def test_chess_execute_move_ok_when_plotter_dry_run(flask_client):
+    """README: use PLOTTER_DRY_RUN for no serial; execute-move must not require hardware."""
+    r = flask_client.post(
+        "/api/chess/execute-move",
+        json={"uci": "e2e4", "capture": False},
+    )
+    assert r.status_code == 200
+    body = r.get_json()
     assert body.get("success") is True
     assert body.get("dry_run") is True
 
 
-def test_chess_execute_move_castling_dry_run(monkeypatch):
-    monkeypatch.setenv("PLOTTER_DRY_RUN", "true")
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/chess/execute-move",
-            json={"uci": "e1g1", "capture": False},
-        )
+def test_chess_execute_move_castling_dry_run(flask_client):
+    r = flask_client.post(
+        "/api/chess/execute-move",
+        json={"uci": "e1g1", "capture": False},
+    )
     assert r.status_code == 200
 
 
-def test_chess_execute_move_en_passant_dry_run(monkeypatch):
-    monkeypatch.setenv("PLOTTER_DRY_RUN", "true")
-    with TestClient(app) as client:
-        r = client.post(
-            "/api/chess/execute-move",
-            json={"uci": "e5d6", "capture": True, "captured_square": "d5"},
-        )
+def test_chess_execute_move_en_passant_dry_run(flask_client):
+    r = flask_client.post(
+        "/api/chess/execute-move",
+        json={"uci": "e5d6", "capture": True, "captured_square": "d5"},
+    )
     assert r.status_code == 200

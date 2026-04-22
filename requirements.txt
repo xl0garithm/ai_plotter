@@ -1,14 +1,10 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-python-multipart
-jinja2
+Flask
 SQLAlchemy
 requests
 Pillow
 numpy
 pyserial
-python-chess
 pytest
 scikit-image
-werkzeug
+gpiozero
+
