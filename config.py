@@ -71,6 +71,10 @@ class Config:
     }
     ELECTROMAGNET_BCM_PIN = int(os.environ.get("ELECTROMAGNET_BCM_PIN", "12"))
     ELECTROMAGNET_PWM_FREQUENCY_HZ = float(os.environ.get("ELECTROMAGNET_PWM_FREQUENCY_HZ", "1000"))
+    # gpiozero PWMOutputDevice.value when magnet is on: 0.0–1.0 (duty). Lower to limit average
+    # logic-level power into the MOSFET gate network; do not use this to “current limit” the coil.
+    _pwm_on = float(os.environ.get("ELECTROMAGNET_PWM_VALUE", "1.0"))
+    ELECTROMAGNET_PWM_VALUE = max(0.0, min(1.0, _pwm_on))
 
     # Chess electromagnet control
     CHESS_MAGNET_ON_GCODE = os.environ.get("CHESS_MAGNET_ON_GCODE", "M3 S255").replace("\\n", "\n")
