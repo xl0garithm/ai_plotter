@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+import re
+from typing import Any, Dict, Iterable, List, Optional, Union
 
+from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from config import Config
 from models import Job
+from services.database import session_scope
+from services.gemini_client import GeminiClient, GeminiClientError
 from services import gcode as gcode_service
 from services import image_processing, vectorizer
-from services.database import session_scope
-from services.plotter import PlotterController, PlotterError
 from services.style_presets import DEFAULT_STYLE_KEY, get_style
+from services.plotter import PlotterController, PlotterError
 
 
 class QueueError(RuntimeError):
@@ -48,7 +50,10 @@ class QueueConfig:
     gcode_dir: Path
 
 
-def _get_queue_config(config: Config | dict[str, Any]) -> QueueConfig:
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1F\x7F]")
+
+
+def _get_queue_config(config: Union[Config, Dict[str, Any]]) -> QueueConfig:
     if isinstance(config, dict):
         upload_dir = Path(config["UPLOAD_DIR"])
         generated_dir = Path(config["GENERATED_DIR"])
@@ -60,13 +65,28 @@ def _get_queue_config(config: Config | dict[str, Any]) -> QueueConfig:
     return QueueConfig(upload_dir=upload_dir, generated_dir=generated_dir, gcode_dir=gcode_dir)
 
 
-def _config_value(config: Config | dict[str, Any], name: str, default: Any) -> Any:
+def _sanitize_contact_field(value: Optional[str]) -> Optional[str]:
+    """Strip control characters and trim length for stored contact fields."""
+    if not value:
+        return None
+    cleaned = _CONTROL_CHAR_PATTERN.sub("", value)
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    return cleaned[:255]
+
+
+def _config_value(config: Union[Config, Dict[str, Any]], name: str, default: Any) -> Any:
     if isinstance(config, dict):
         return config.get(name, default)
     return getattr(config, name, default)
 
 
-logger = logging.getLogger(__name__)
+def _logger():
+    try:
+        return current_app.logger
+    except RuntimeError:
+        return logging.getLogger("services.queue")
 
 
 def _temporary_asset_key() -> str:
@@ -74,7 +94,7 @@ def _temporary_asset_key() -> str:
     return f"pending-{uuid.uuid4().hex}"
 
 
-def _is_dry_run(config: Config | dict[str, Any]) -> bool:
+def _is_dry_run(config: Union[Config, Dict[str, Any]]) -> bool:
     if isinstance(config, dict):
         value = config.get("PLOTTER_DRY_RUN")
     else:
@@ -85,7 +105,7 @@ def _is_dry_run(config: Config | dict[str, Any]) -> bool:
     return bool(value)
 
 
-def _is_z_inverted(config: Config | dict[str, Any]) -> bool:
+def _is_z_inverted(config: Union[Config, Dict[str, Any]]) -> bool:
     if isinstance(config, dict):
         value = config.get("PLOTTER_INVERT_Z")
     else:
@@ -100,8 +120,8 @@ def _vectorize_and_store(
     asset_key: str,
     image_path: Path,
     cfg: QueueConfig,
-    config: Config | dict[str, Any],
-) -> dict[str, Any]:
+    config: Union[Config, Dict[str, Any]],
+) -> Dict[str, Any]:
     """Run vectorization and persist SVG/JSON artifacts."""
 
     threshold = int(_config_value(config, "VECTORIZE_THRESHOLD", 240))
@@ -142,7 +162,7 @@ def _touch_job(session, job_id: int) -> Job:
     job = session.get(Job, job_id)
     if job is None:
         raise QueueError(f"Job {job_id} not found.")
-    job.updated_at = datetime.now(timezone.utc)
+    job.updated_at = datetime.utcnow()
     return job
 
 
@@ -154,7 +174,7 @@ def _init_print_progress(job_id: int, total_lines: int) -> None:
         metadata["print_progress"] = {
             "total_lines": total_lines,
             "current_line": 0,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
         }
         obj.metadata_json = metadata
 
@@ -163,7 +183,7 @@ def _update_print_progress(
     job_id: int,
     *,
     current_line: int,
-    total_lines: int | None = None,
+    total_lines: Optional[int] = None,
 ) -> None:
     with session_scope() as session:
         obj = _touch_job(session, job_id)
@@ -172,13 +192,11 @@ def _update_print_progress(
         if total_lines is not None:
             progress["total_lines"] = max(0, int(total_lines))
         existing_total = progress.get("total_lines") or total_lines or 0
-        safe_current = max(
-            0, min(int(current_line), int(existing_total) if existing_total else int(current_line))
-        )
+        safe_current = max(0, min(int(current_line), int(existing_total) if existing_total else int(current_line)))
         progress.update(
             {
                 "current_line": safe_current,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
             }
         )
         metadata["print_progress"] = progress
@@ -194,22 +212,86 @@ def _clear_print_progress(job_id: int) -> None:
             obj.metadata_json = metadata
 
 
-def create_job_from_manual_upload(
-    upload: FileStorage | tuple,
+def _job_to_public_dict(job: Job) -> Dict[str, Any]:
+    return job.to_dict(admin=False)
+
+
+def _job_to_admin_dict(job: Job) -> Dict[str, Any]:
+    return job.to_dict(admin=True)
+
+
+def create_job_from_upload(
+    upload: FileStorage,
     *,
-    requester: str | None,
+    prompt: Optional[str],
+    requester: Optional[str],
+    email: Optional[str] = None,
+    style_key: str = DEFAULT_STYLE_KEY,
+    style_prompt: Optional[str] = None,
     config: Config,
-) -> dict[str, Any]:
-    """Create a job directly from an uploaded outline image. upload is FileStorage or (bytes, filename)."""
-    if upload is None:
+    gemini_client: GeminiClient,
+) -> Dict[str, Any]:
+    """Create a new job from an uploaded image and trigger generation."""
+    if upload is None or upload.filename == "":
         raise QueueError("No image provided.")
-    if isinstance(upload, tuple):
-        content, filename = upload
-        if not content or not filename:
-            raise QueueError("No image provided.")
-    else:
-        if upload.filename == "":
-            raise QueueError("No image provided.")
+
+    normalized_email = _sanitize_contact_field(email)
+
+    style_key = (style_key or DEFAULT_STYLE_KEY).strip().lower()
+    style = get_style(style_key)
+    resolved_style_prompt = style_prompt or style["prompt"]
+
+    cfg = _get_queue_config(config)
+    metadata = {
+        "style_key": style_key,
+        "style_label": style["label"],
+        "style_description": style["description"],
+        "style_prompt": resolved_style_prompt,
+    }
+    placeholder_key = _temporary_asset_key()
+
+    with session_scope() as session:
+        job = Job(
+            asset_key=placeholder_key,
+            status=JobStatus.SUBMITTED.value,
+            requester=requester,
+            email=normalized_email,
+            prompt=prompt,
+            original_path="",
+            metadata_json=metadata,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        asset_key = image_processing.generate_asset_key(job_id)
+        original_path = cfg.upload_dir / f"{asset_key}.png"
+        image_processing.save_upload(upload, original_path)
+        job.asset_key = asset_key
+        job.original_path = str(original_path)
+
+    try:
+        _generate_caricature(job_id, gemini_client, cfg, config)
+    except GeminiClientError as exc:
+        _logger().exception("Gemini generation failed for job %s: %s", job_id, exc)
+        mark_job_failed(job_id, str(exc))
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _logger().exception("Job generation failed for job %s: %s", job_id, exc)
+        mark_job_failed(job_id, str(exc))
+        raise
+
+    return get_job(job_id, admin=False)
+
+
+def create_job_from_manual_upload(
+    upload: FileStorage,
+    *,
+    requester: Optional[str],
+    config: Config,
+) -> Dict[str, Any]:
+    """Create a job directly from an uploaded outline image."""
+    if upload is None or upload.filename == "":
+        raise QueueError("No image provided.")
 
     cfg = _get_queue_config(config)
     style = get_style(DEFAULT_STYLE_KEY)
@@ -232,15 +314,8 @@ def create_job_from_manual_upload(
         asset_key = image_processing.generate_asset_key(job_id)
         original_path = cfg.upload_dir / f"{asset_key}.png"
         generated_path = cfg.generated_dir / f"{asset_key}.png"
-        if isinstance(upload, tuple):
-            content, _ = upload
-            original_path.parent.mkdir(parents=True, exist_ok=True)
-            original_path.write_bytes(content)
-        else:
-            image_processing.save_upload(upload, original_path)
-        resized = image_processing.resize_image_bytes(
-            original_path.read_bytes(), (resolution, resolution)
-        )
+        image_processing.save_upload(upload, original_path)
+        resized = image_processing.resize_image_bytes(original_path.read_bytes(), (resolution, resolution))
         image_processing.save_image_bytes(resized, generated_path)
         vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
         metadata = {
@@ -258,7 +333,49 @@ def create_job_from_manual_upload(
     return get_job(job_id, admin=True)
 
 
-def get_job(job_id: int, *, admin: bool = False) -> dict[str, Any]:
+def _generate_caricature(
+    job_id: int,
+    gemini_client: GeminiClient,
+    cfg: QueueConfig,
+    config: Config,
+) -> None:
+    """Invoke Gemini to generate a caricature for the job."""
+    set_job_status(job_id, JobStatus.GENERATING)
+
+    with session_scope() as session:
+        job = _touch_job(session, job_id)
+        original_path = Path(job.original_path)
+        asset_key = job.asset_key
+        if not original_path.exists():
+            raise QueueError("Original image not found on disk.")
+        image_bytes = original_path.read_bytes()
+        metadata = job.metadata_json or {}
+        style_prompt = metadata.get("style_prompt", "")
+        custom_prompt = (job.prompt or "").strip()
+
+    prompt_parts = []
+    if style_prompt:
+        prompt_parts.append(style_prompt)
+    if custom_prompt:
+        prompt_parts.append(custom_prompt)
+    effective_prompt = " ".join(prompt_parts).strip() or None
+
+    resolution = int(_config_value(config, "VECTOR_RESOLUTION", 1600))
+    generated_bytes = gemini_client.generate_caricature(image_bytes, effective_prompt or None)
+    resized_bytes = image_processing.resize_image_bytes(generated_bytes, (resolution, resolution))
+    generated_path = cfg.generated_dir / f"{asset_key}.png"
+    image_processing.save_image_bytes(resized_bytes, generated_path)
+    vector_meta = _vectorize_and_store(asset_key, generated_path, cfg, config)
+
+    with session_scope() as session:
+        job = _touch_job(session, job_id)
+        job.generated_path = str(generated_path)
+        job.status = JobStatus.GENERATED.value
+        job.error_message = None
+        job.metadata_json = {**(job.metadata_json or {}), **vector_meta}
+
+
+def get_job(job_id: int, *, admin: bool = False) -> Dict[str, Any]:
     """Return a single job."""
     with session_scope() as session:
         job = session.get(Job, job_id)
@@ -267,33 +384,33 @@ def get_job(job_id: int, *, admin: bool = False) -> dict[str, Any]:
         return job.to_dict(admin=admin)
 
 
-def list_jobs(*, admin: bool = False, limit: int = 20) -> list[dict[str, Any]]:
+def list_jobs(*, admin: bool = False, limit: int = 20) -> List[Dict[str, Any]]:
     """Return jobs for display."""
     with session_scope() as session:
         query = session.query(Job).order_by(Job.created_at.desc()).limit(limit)
         jobs: Iterable[Job] = query.all()
         if admin:
-            return [job.to_dict(admin=True) for job in jobs]
-        return [job.to_dict(admin=False) for job in jobs]
+            return [_job_to_admin_dict(job) for job in jobs]
+        return [_job_to_public_dict(job) for job in jobs]
 
 
-def set_job_status(job_id: int, status: JobStatus) -> dict[str, Any]:
+def set_job_status(job_id: int, status: JobStatus) -> Dict[str, Any]:
     """Update job status."""
     with session_scope() as session:
         job = _touch_job(session, job_id)
         job.status = status.value
         if status == JobStatus.CONFIRMED:
-            job.confirmed_at = datetime.now(timezone.utc)
+            job.confirmed_at = datetime.utcnow()
         elif status == JobStatus.APPROVED:
-            job.approved_at = datetime.now(timezone.utc)
+            job.approved_at = datetime.utcnow()
         elif status == JobStatus.PRINTING:
-            job.started_at = datetime.now(timezone.utc)
+            job.started_at = datetime.utcnow()
         elif status == JobStatus.COMPLETED:
-            job.completed_at = datetime.now(timezone.utc)
+            job.completed_at = datetime.utcnow()
         return job.to_dict(admin=True)
 
 
-def confirm_job(job_id: int) -> dict[str, Any]:
+def confirm_job(job_id: int) -> Dict[str, Any]:
     """Mark a job as confirmed by a user."""
     job = get_job(job_id, admin=True)
     if job["status"] != JobStatus.GENERATED.value:
@@ -301,7 +418,7 @@ def confirm_job(job_id: int) -> dict[str, Any]:
     return set_job_status(job_id, JobStatus.CONFIRMED)
 
 
-def approve_job(job_id: int) -> dict[str, Any]:
+def approve_job(job_id: int) -> Dict[str, Any]:
     """Approve a job for plotting."""
     job = get_job(job_id, admin=True)
     if job["status"] not in (JobStatus.CONFIRMED.value, JobStatus.GENERATED.value):
@@ -309,7 +426,7 @@ def approve_job(job_id: int) -> dict[str, Any]:
     return set_job_status(job_id, JobStatus.APPROVED)
 
 
-def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str, Any]:
+def queue_for_printing(job_id: int, config: Union[Config, Dict[str, Any]]) -> Dict[str, Any]:
     """Move job to queued state for plotting."""
     job = get_job(job_id, admin=True)
     allowed_statuses = {
@@ -324,7 +441,7 @@ def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str
 
     cfg = _get_queue_config(config)
 
-    metadata: dict[str, Any] = {}
+    metadata: Dict[str, Any] = {}
     with session_scope() as session:
         obj = _touch_job(session, job_id)
         if not obj.generated_path:
@@ -332,9 +449,7 @@ def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str
         generated_path = Path(obj.generated_path)
         if not generated_path.exists():
             raise QueueError("Generated image file missing.")
-        gcode_path = (
-            Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
-        )
+        gcode_path = Path(obj.gcode_path) if obj.gcode_path else cfg.gcode_dir / f"{obj.asset_key}.gcode"
         metadata = obj.metadata_json or {}
 
         vector_data: vectorizer.VectorData | None = None
@@ -363,7 +478,9 @@ def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str
                 break
 
         if not vector_data:
-            raise QueueError("Vector data missing for job; add generated image before queuing.")
+            raise QueueError(
+                "Vector data missing for job; regenerate the caricature before queuing."
+            )
 
     try:
         target_size_mm = 100.0  # physical drawing size
@@ -388,7 +505,7 @@ def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str
 
         gcode_stats = gcode_service.vector_data_to_gcode(vector_data, gcode_path, settings=settings)
     except gcode_service.GCodeError as exc:
-        logger.exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
+        _logger().exception("Failed to convert image to G-code for job %s: %s", job_id, exc)
         mark_job_failed(job_id, str(exc))
         raise
 
@@ -415,10 +532,10 @@ def queue_for_printing(job_id: int, config: Config | dict[str, Any]) -> dict[str
 
 def start_print_job(
     job_id: int,
-    config: Config | dict[str, Any],
+    config: Union[Config, Dict[str, Any]],
     *,
     allow_reprint: bool = False,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Send the job's G-code to the plotter."""
     job = get_job(job_id, admin=True)
     status = job["status"]
@@ -462,22 +579,22 @@ def start_print_job(
     gcode_file = Path(gcode_path)
 
     if _is_dry_run(config):
-        logger.info("Dry-run enabled; writing G-code to text file for job %s", job_id)
+        _logger().info("Dry-run enabled; writing G-code to text file for job %s", job_id)
         set_job_status(job_id, JobStatus.PRINTING)
         dry_run_path = gcode_file.with_suffix(".dryrun.txt")
         dry_run_path.write_text(gcode_file.read_text(encoding="utf-8"), encoding="utf-8")
     else:
         # Access the config object correctly depending on whether it's a dict or object
         if isinstance(config, dict):
-            timeout_value = float(config.get("SERIAL_TIMEOUT", 2.0))
-            port = config.get("SERIAL_PORT")
-            baudrate = int(config.get("SERIAL_BAUDRATE", 115200))
-            line_delay = float(config.get("PLOTTER_LINE_DELAY", 0.0))
+             timeout_value = float(config.get("SERIAL_TIMEOUT", 2.0))
+             port = config.get("SERIAL_PORT")
+             baudrate = int(config.get("SERIAL_BAUDRATE", 115200))
+             line_delay = float(config.get("PLOTTER_LINE_DELAY", 0.0))
         else:
-            timeout_value = float(getattr(config, "SERIAL_TIMEOUT", 2.0))
-            port = getattr(config, "SERIAL_PORT")
-            baudrate = int(getattr(config, "SERIAL_BAUDRATE", 115200))
-            line_delay = float(getattr(config, "PLOTTER_LINE_DELAY", 0.0))
+             timeout_value = float(getattr(config, "SERIAL_TIMEOUT", 2.0))
+             port = getattr(config, "SERIAL_PORT")
+             baudrate = int(getattr(config, "SERIAL_BAUDRATE", 115200))
+             line_delay = float(getattr(config, "PLOTTER_LINE_DELAY", 0.0))
 
         controller = PlotterController(
             port=port,
@@ -521,7 +638,7 @@ def start_print_job(
                 progress_callback=_progress_callback,
             )
         except PlotterError as exc:
-            logger.exception("Plotter error while printing job %s: %s", job_id, exc)
+            _logger().exception("Plotter error while printing job %s: %s", job_id, exc)
             mark_job_failed(job_id, str(exc))
             raise
         finally:
@@ -529,9 +646,7 @@ def start_print_job(
                 if _plotter_state.should_rehome_on_cancel:
                     controller.rehome()
             except PlotterError as rehome_exc:
-                logger.warning(
-                    "Failed to rehome after cancellation for job %s: %s", job_id, rehome_exc
-                )
+                _logger().warning("Failed to rehome after cancellation for job %s: %s", job_id, rehome_exc)
             finally:
                 controller.disconnect()
             _plotter_state.controller = None
@@ -542,7 +657,7 @@ def start_print_job(
     return set_job_status(job_id, JobStatus.COMPLETED)
 
 
-def cancel_job(job_id: int) -> dict[str, Any]:
+def cancel_job(job_id: int) -> Dict[str, Any]:
     """Cancel a job."""
     job = get_job(job_id, admin=True)
     if job["status"] in (JobStatus.COMPLETED.value, JobStatus.CANCELLED.value):
@@ -562,7 +677,7 @@ def _signal_plotter_cancel() -> None:
 
 
 class _PlotterState:
-    controller: PlotterController | None = None
+    controller: Optional[PlotterController] = None
     should_rehome_on_cancel: bool = False
 
 
@@ -589,3 +704,4 @@ def get_generated_image_path(job_id: int) -> Path:
         if not path.exists():
             raise QueueError("Generated image missing from disk.")
         return path
+

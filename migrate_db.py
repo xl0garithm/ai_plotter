@@ -10,9 +10,8 @@ from services import database
 
 def ensure_email_column() -> None:
     """Add the email column to jobs if it does not already exist."""
-    cfg = Config()
-    cfg.ensure_directories()
-    database.init_db(cfg.DATABASE_URL)
+    Config.ensure_directories()
+    database.init_db(Config.DATABASE_URL)
 
     bind = database.engine or database.SessionLocal.bind
     if bind is None:
@@ -31,3 +30,4 @@ def ensure_email_column() -> None:
 
 if __name__ == "__main__":
     ensure_email_column()
+
