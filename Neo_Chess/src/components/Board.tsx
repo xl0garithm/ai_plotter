@@ -9,6 +9,7 @@ interface BoardProps {
   gameState: ChessGameState;
   onSquareClick: (square: Square) => void;
   viewMode?: "white" | "black" | "top";
+  boardStyle?: "2d" | "3d";
 }
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -645,7 +646,137 @@ function Scene({
   );
 }
 
-export function Board({ gameState, onSquareClick }: BoardProps) {
+function Board2D({ gameState, onSquareClick }: { gameState: ChessGameState; onSquareClick: (square: Square) => void }) {
+  const chess = useMemo(() => {
+    const c = new Chess();
+    try { c.load(gameState.fen); } catch {}
+    return c;
+  }, [gameState.fen]);
+
+  const pieces = useMemo(() => {
+    const board = chess.board();
+    const result: Array<{ square: string; type: string; color: "w" | "b" }> = [];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+        if (piece) {
+          result.push({ square: FILES[c] + RANKS[r], type: piece.type, color: piece.color as "w" | "b" });
+        }
+      }
+    }
+    return result;
+  }, [gameState.fen]);
+
+  const pieceSymbols: Record<string, Record<string, string>> = {
+    w: { p: "♙", r: "♖", n: "♘", b: "♗", q: "♕", k: "♔" },
+    b: { p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚" }
+  };
+
+  const lastMoveSquares = gameState.lastMove
+    ? [gameState.lastMove.from, gameState.lastMove.to]
+    : [];
+  const kingInCheckSquare = useMemo(() => {
+    if (!gameState.isCheck) return null;
+    const board = chess.board();
+    const turn = chess.turn();
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const p = board[r][c];
+        if (p && p.type === "k" && p.color === turn) {
+          return FILES[c] + RANKS[r];
+        }
+      }
+    }
+    return null;
+  }, [gameState.isCheck, gameState.fen]);
+
+  return (
+    <div className="flex gap-4 w-full items-center">
+      <CapturedPieces gameState={gameState} />
+      
+      <div className="flex-1 max-w-2xl rounded-xl overflow-hidden border border-primary/30 bg-black/60 relative shadow-[0_0_60px_rgba(0,243,255,0.12)]">
+        <div className="grid grid-cols-8 gap-0">
+          {Array.from({ length: 8 }).map((_, row) =>
+            Array.from({ length: 8 }).map((_, col) => {
+              const square = FILES[col] + RANKS[row];
+              const isLight = (row + col) % 2 === 0;
+              const piece = pieces.find(p => p.square === square);
+              const isSelected = gameState.selectedSquare === square;
+              const isValidTarget = gameState.validMoveSquares.includes(square as Square);
+              const isLastMove = lastMoveSquares.includes(square as Square);
+              const isInCheck = square === kingInCheckSquare;
+
+              return (
+                <button
+                  key={square}
+                  onClick={() => onSquareClick(square as Square)}
+                  className={`
+                    aspect-square flex items-center justify-center text-4xl font-bold relative
+                    transition-all hover:scale-105
+                    ${isLight ? 'bg-[#1a1a2e]' : 'bg-[#0a0a1a]'}
+                  `}
+                  style={{
+                    backgroundImage: isLight 
+                      ? 'linear-gradient(45deg, rgba(0,243,255,0.03) 25%, transparent 25%, transparent 75%, rgba(0,243,255,0.03) 75%)' 
+                      : 'linear-gradient(45deg, rgba(255,0,255,0.02) 25%, transparent 25%, transparent 75%, rgba(255,0,255,0.02) 75%)',
+                    backgroundSize: '8px 8px',
+                    border: isSelected 
+                      ? '4px solid #00f3ff' 
+                      : isValidTarget 
+                      ? '2px solid #4ade80'
+                      : isLastMove
+                      ? '2px solid #ffcc00'
+                      : isInCheck
+                      ? '2px solid #ff0000'
+                      : 'none',
+                    boxShadow: isSelected 
+                      ? 'inset 0 0 20px rgba(0,243,255,0.3), 0 0 20px rgba(0,243,255,0.5)' 
+                      : isInCheck
+                      ? 'inset 0 0 20px rgba(255,0,0,0.3), 0 0 20px rgba(255,0,0,0.5)'
+                      : 'none'
+                  }}
+                >
+                  {piece && (
+                    <span 
+                      className={`
+                        drop-shadow-lg transition-all
+                        ${piece.color === 'w' 
+                          ? 'text-[#00f3ff] filter drop-shadow-[0_0_8px_rgba(0,243,255,0.8)]' 
+                          : 'text-[#ff00ff] filter drop-shadow-[0_0_8px_rgba(255,0,255,0.8)]'
+                        }
+                        ${isSelected ? 'scale-110' : ''}
+                      `}
+                    >
+                      {pieceSymbols[piece.color][piece.type]}
+                    </span>
+                  )}
+                  {isValidTarget && !piece && (
+                    <div className="w-4 h-4 bg-[#4ade80] rounded-full opacity-80 shadow-[0_0_10px_rgba(74,222,128,0.6)] animate-pulse"></div>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+        
+        <div className="absolute bottom-3 left-4 right-4 pointer-events-none flex justify-between items-end opacity-30">
+          <div className="text-[9px] font-mono text-primary uppercase tracking-widest">
+            2D Performance Mode
+          </div>
+          <div className="text-[9px] font-mono text-secondary uppercase tracking-widest">
+            {gameState.isCheck ? "⚡ CHECK" : ""}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Board({ gameState, onSquareClick, boardStyle = "3d" }: BoardProps) {
+  if (boardStyle === "2d") {
+    return <Board2D gameState={gameState} onSquareClick={onSquareClick} />;
+  }
+
   return (
     <div className="flex gap-4 w-full items-center">
       <CapturedPieces gameState={gameState} />
